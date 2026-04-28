@@ -35,6 +35,7 @@ local scoutReveal  = nil  -- { card = pitchedCard, timer = N } while overlay is 
 
 local hoveredCard    = nil
 local hoveredCardPos = nil
+local handMouseX     = nil   -- current mouse X for dock magnification
 local aiDifficulty   = "medium"
 
 -- Selected pitched card for left panel detail
@@ -294,7 +295,8 @@ function Match.draw()
 
     handHitboxes = Hand.draw(
         match.players.player.hand,
-        selectedHandCard and selectedHandCard.id or nil
+        selectedHandCard and selectedHandCard.id or nil,
+        handMouseX
     )
 
     -- Left panel
@@ -1112,6 +1114,7 @@ end
 
 function Match.mousemoved(x, y)
     if activeCombat then return end
+    handMouseX     = x
     hoveredCard    = nil
     hoveredCardPos = nil
     for _, hbox in ipairs(handHitboxes) do
