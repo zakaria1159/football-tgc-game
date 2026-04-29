@@ -4,18 +4,28 @@ local Fonts = require("ui.fonts")
 
 local Hand = {}
 
-function Hand.draw(hand, selectedCardId)
+-- Dock magnification constants
+local MAG_BOOST  = 0.52   -- hovered card grows to 1.52x its base size
+local MAG_RADIUS = 115    -- px from card centre where influence fades to zero
+
+local function dockScale(dist)
+    if dist >= MAG_RADIUS then return 1.0 end
+    local t = 1.0 - dist / MAG_RADIUS
+    t = t * t * (3 - 2 * t)   -- smoothstep
+    return 1.0 + MAG_BOOST * t
+end
+
+function Hand.draw(hand, selectedCardId, hoverX)
     if not hand then return {} end
 
-    local L     = Theme.layout
-    local H     = love.graphics.getHeight()
-    local handY = H - L.handH
-    local GAP   = Theme.card.gap
-    local CH    = math.min(Theme.card.h, L.handH - 10)
-    local CW    = math.floor(Theme.card.w * (CH / Theme.card.h))
-    local padY  = math.max(4, (L.handH - CH) / 2)
+    local L      = Theme.layout
+    local H      = love.graphics.getHeight()
+    local handY  = H - L.handH
+    local GAP    = Theme.card.gap
+    local baseH  = math.min(Theme.card.h, L.handH - 10)
+    local baseW  = math.floor(Theme.card.w * (baseH / Theme.card.h))
 
-    -- Background strip (layered depth)
+    -- Background strip
     love.graphics.setColor(0.025, 0.025, 0.035, 1)
     love.graphics.rectangle("fill", 0, handY, L.pitchW, L.handH)
     love.graphics.setColor(0.038, 0.038, 0.050, 1)
@@ -36,28 +46,47 @@ function Hand.draw(hand, selectedCardId)
         love.graphics.print("YOUR HAND  (" .. #hand .. ")", L.pitchX + 6, handY + 5)
     end)
 
+    if #hand == 0 then return {} end
+
+    -- ── Dock magnification ────────────────────────────────────────────────────
+    -- Step 1: compute scale for each card using unshifted base centres
+    local totalBaseW = #hand * (baseW + GAP) - GAP
+    local baseStart  = math.max(10, (L.pitchW - totalBaseW) / 2)
+
+    local scales = {}
+    for i = 1, #hand do
+        local cx = baseStart + (i - 1) * (baseW + GAP) + baseW * 0.5
+        scales[i] = hoverX and dockScale(math.abs(hoverX - cx)) or 1.0
+    end
+
+    -- Step 2: compute x positions using scaled widths (cards shift to make room)
+    local totalScaledW = -GAP
+    for i = 1, #hand do
+        totalScaledW = totalScaledW + math.floor(baseW * scales[i]) + GAP
+    end
+    local curX   = math.max(10, (L.pitchW - totalScaledW) / 2)
+    local bottomY = H - 6   -- cards are bottom-anchored here
+
+    -- ── Draw ──────────────────────────────────────────────────────────────────
     local hitboxes = {}
-    local totalW   = #hand * (CW + GAP) - GAP
-    local startX   = math.max(10, (L.pitchW - totalW) / 2)
-
-    -- Fan effect: cards near center rise slightly
-    local cardCount = #hand
-    local centerIdx = (cardCount + 1) / 2
-
     for i, cardDef in ipairs(hand) do
-        local x   = startX + (i - 1) * (CW + GAP)
-        local dist = math.abs(i - centerIdx)
-        local lift = math.max(0, 8 - dist * 3)  -- center cards rise slightly
-        local cy  = handY + padY - lift
+        local sc  = scales[i]
+        local w   = math.floor(baseW * sc)
+        local h   = math.floor(baseH * sc)
+        local x   = math.floor(curX)
+        local y   = bottomY - h
         local sel = selectedCardId == cardDef.id
-        -- selected card lifts higher
-        if sel then cy = cy - 10 end
-        local hbox = Card.drawInHand(cardDef, x, cy, { selected = sel, w = CW, h = CH })
+        if sel then y = y - 8 end
+
+        local hbox = Card.drawInHand(cardDef, x, y, { selected = sel, w = w, h = h })
         hbox.cardId  = cardDef.id
         hbox.cardDef = cardDef
-        -- keep hitbox at non-lifted position for easier clicking
-        hbox.y = handY + padY - (sel and 10 or 0)
+        -- Keep hitbox spanning the full strip height so clicking is forgiving
+        hbox.y = handY + 4
+        hbox.h = L.handH - 4
         table.insert(hitboxes, hbox)
+
+        curX = curX + w + GAP
     end
 
     return hitboxes

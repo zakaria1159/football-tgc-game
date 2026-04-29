@@ -14,6 +14,8 @@ local AI            = require("ai.opponent")
 local Audio         = require("ui.audio")
 local Character     = require("ui.character")
 local C             = require("engine.constants")
+local PauseMenu     = require("ui.pause_menu")
+local CardLibrary   = require("ui.card_library")
 
 local Match = {}
 
@@ -35,7 +37,11 @@ local scoutReveal  = nil  -- { card = pitchedCard, timer = N } while overlay is 
 
 local hoveredCard    = nil
 local hoveredCardPos = nil
+local handMouseX     = nil   -- current mouse X for dock magnification
 local aiDifficulty   = "medium"
+
+local pauseOpen   = false
+local libraryOpen = false
 
 -- Selected pitched card for left panel detail
 local selectedPitchedCard = nil
@@ -294,7 +300,8 @@ function Match.draw()
 
     handHitboxes = Hand.draw(
         match.players.player.hand,
-        selectedHandCard and selectedHandCard.id or nil
+        selectedHandCard and selectedHandCard.id or nil,
+        handMouseX
     )
 
     -- Left panel
@@ -452,6 +459,10 @@ function Match.draw()
     if debugLogOpen then Match.drawDebugLog(match) end
 
     if match.winner then Match.drawWinScreen(match) end
+
+    -- Pause menu / card library (always on top of everything)
+    if libraryOpen then CardLibrary.draw() end
+    if pauseOpen and not libraryOpen then PauseMenu.draw() end
 end
 
 function Match.drawTopBar(match)
@@ -787,6 +798,22 @@ end
 -- ── Input ────────────────────────────────────────────────────────────────────
 
 function Match.mousepressed(x, y, button)
+    -- Card library takes full input priority
+    if libraryOpen then
+        local r = CardLibrary.mousepressed(x, y, button)
+        if r == "close" then libraryOpen = false end
+        return nil
+    end
+
+    -- Pause menu takes next priority
+    if pauseOpen then
+        local r = PauseMenu.mousepressed(x, y, button)
+        if r == "resume"  then pauseOpen = false
+        elseif r == "library" then libraryOpen = true; CardLibrary.open()
+        elseif r == "home"    then pauseOpen = false; return "home" end
+        return nil
+    end
+
     if button ~= 1 then return end
 
     -- Dismiss scout reveal overlay
@@ -1077,6 +1104,22 @@ function Match.mousepressed(x, y, button)
 end
 
 function Match.keypressed(key)
+    -- Card library takes full input priority
+    if libraryOpen then
+        local r = CardLibrary.keypressed(key)
+        if r == "close" then libraryOpen = false end
+        return nil
+    end
+
+    -- Pause menu takes next priority
+    if pauseOpen then
+        local r = PauseMenu.keypressed(key)
+        if r == "resume"  then pauseOpen = false
+        elseif r == "library" then libraryOpen = true; CardLibrary.open()
+        elseif r == "home"    then pauseOpen = false; return "home" end
+        return nil
+    end
+
     if activeTrapActiv then
         if key == "space" or key == "return" then activeTrapActiv = nil end
         return nil
@@ -1092,11 +1135,11 @@ function Match.keypressed(key)
     if key == "m"   then selectedMode = selectedMode == "attack" and "defense" or "attack"; return nil end
 
     if key == "escape" then
-        if scoutPending           then scoutPending = false; selectedHandCard = nil
-        elseif selectedAttackerSlot   then selectedAttackerSlot   = nil
+        if scoutPending              then scoutPending = false; selectedHandCard = nil
+        elseif selectedAttackerSlot  then selectedAttackerSlot  = nil
         elseif substitutionFreedSlot then substitutionFreedSlot = nil
-        elseif selectedHandCard   then selectedHandCard       = nil
-        else return "home" end
+        elseif selectedHandCard      then selectedHandCard      = nil
+        else pauseOpen = true end
     elseif key == "r" and store.match and store.match.winner then
         return "restart"
     end
@@ -1104,6 +1147,10 @@ function Match.keypressed(key)
 end
 
 function Match.wheelmoved(x, y)
+    if libraryOpen then
+        CardLibrary.wheelmoved(x, y)
+        return
+    end
     if debugLogOpen then
         debugLogScroll = debugLogScroll + (y > 0 and 3 or -3)
         if debugLogScroll < 0 then debugLogScroll = 0 end
@@ -1112,6 +1159,7 @@ end
 
 function Match.mousemoved(x, y)
     if activeCombat then return end
+    handMouseX     = x
     hoveredCard    = nil
     hoveredCardPos = nil
     for _, hbox in ipairs(handHitboxes) do

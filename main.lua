@@ -127,7 +127,8 @@ function love.mousemoved(x, y)
 end
 
 function love.wheelmoved(x, y)
-    if currentScene == "match" then Match.wheelmoved(x, y)
+    if currentScene == "home" then Home.wheelmoved(x, y)
+    elseif currentScene == "match" then Match.wheelmoved(x, y)
     elseif currentScene == "gwent_match" then GwentMatch.wheelmoved(x, y) end
 end
 

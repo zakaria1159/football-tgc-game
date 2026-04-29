@@ -8,6 +8,19 @@ local Character = require("ui.character")
 
 local CombatOverlay = {}
 
+-- ── Beam sprite animation ─────────────────────────────────────────────────────
+
+local beamImgs = nil
+
+local function loadBeams()
+    if beamImgs then return end
+    beamImgs = {}
+    for i = 1, 4 do
+        local ok, img = pcall(love.graphics.newImage, "assets/beams/beam" .. i .. ".png")
+        if ok then beamImgs[i] = img end
+    end
+end
+
 -- ── Palette (from HTML :root) ─────────────────────────────────────────────────
 
 local GOLD     = { 1.000, 0.843, 0.000, 1 }
@@ -402,6 +415,7 @@ end
 
 function CombatOverlay.draw(data, anim)
     if not data then return end
+    loadBeams()
     anim = anim or {}
 
     local W = love.graphics.getWidth()
@@ -523,38 +537,22 @@ function CombatOverlay.draw(data, anim)
     local atkReveal   = revealed or not (data.attacker and data.attacker.wasHidden)
     local defReveal   = revealed or not (data.defender and data.defender.wasHidden)
 
-    drawCombatCard(data.attacker, atkX, cardTopY, cardW, cardH, true,  outcome, atkReveal)
-    drawCombatCard(data.defender, defX, cardTopY, cardW, cardH, false, outcome, defReveal)
-
-    -- ── 5. VS / CLASH pillar (.vs) ────────────────────────────────────────────
+    -- ── 5. VS label + Kamehameha beam (drawn BEFORE cards so beam is behind them)
     local vsCX = W/2 + shakeX
-    local vsCY = cardTopY + cardH/2
-    local vsR  = 46
-    local vsOutR = vsR + 14
+    local vsCY = cardTopY + cardH * 0.50   -- beam runs at card mid-height
 
-    -- Inner glow fill
-    love.graphics.setColor(GOLD[1], GOLD[2], GOLD[3], 0.12)
-    love.graphics.circle("fill", vsCX, vsCY, vsR)
-    -- Inner solid ring (.vs__ring)
-    love.graphics.setColor(GOLD[1], GOLD[2], GOLD[3], 0.80)
-    love.graphics.setLineWidth(2)
-    love.graphics.circle("line", vsCX, vsCY, vsR)
-    love.graphics.setLineWidth(1)
-    -- Outer dashed ring (.vs__ring--outer) — approximated with arc segments
-    love.graphics.setColor(GOLD[1], GOLD[2], GOLD[3], 0.42)
-    love.graphics.setLineWidth(1)
-    for i = 0, 15 do
-        local a1 = (i / 16) * math.pi * 2
-        local a2 = ((i + 0.55) / 16) * math.pi * 2
-        love.graphics.arc("line", "open", vsCX, vsCY, vsOutR, a1, a2)
-    end
-    love.graphics.setLineWidth(1)
+    local atkEdge = atkCX + cardW * 0.5 - 4
+    local defEdge = defCX - cardW * 0.5 + 4
 
     local vsAlpha    = math.max(0, 1 - clashX * 5)
     local clashAlpha = math.min(1, clashX * 3)
 
-    -- "VS" text (.vs__text)
+    -- Pre-clash VS label
     if vsAlpha > 0.02 then
+        love.graphics.setColor(GOLD[1], GOLD[2], GOLD[3], 0.35 * vsAlpha)
+        love.graphics.setLineWidth(1.5)
+        love.graphics.circle("line", vsCX, vsCY, 38)
+        love.graphics.setLineWidth(1)
         Fonts.with(33, function()
             love.graphics.setColor(0.165, 0.118, 0.000, vsAlpha)
             love.graphics.printf("VS", vsCX - W/2, vsCY - 22, W, "center")
@@ -563,40 +561,60 @@ function CombatOverlay.draw(data, anim)
         end)
     end
 
-    -- "CLASH!" + spark burst (.vs__text--clash, .vs__sparks)
-    if clashAlpha > 0.02 then
-        -- Spark lines radiating from VS center
-        love.graphics.setLineWidth(2)
-        for i = 0, 11 do
-            local ang = i * math.pi / 6
-            local len = 22 + clashAlpha * 42
-            love.graphics.setColor(GOLD[1], GOLD[2], GOLD[3], clashAlpha * 0.65)
-            love.graphics.line(vsCX, vsCY,
-                vsCX + math.cos(ang)*len, vsCY + math.sin(ang)*len)
+    -- Beam sprite (behind cards)
+    if (data.attacker and data.defender) and (clashX > 0.02 or resultAlpha > 0) then
+        local t      = love.timer.getTime()
+        local atkVal = data.attacker.atk or 0
+        local defVal = data.defender.def or 0
+        local margin = atkVal - defVal
+
+        local halfSpan  = vsCX - atkEdge
+        local pushDir   = margin / math.max(atkVal + defVal, 1)
+        local maxPushPx = halfSpan * 0.50
+
+        local wobble   = math.sin(t * 18) * 6 * math.min(1, clashX * 2) * (1 - resultAlpha)
+        local pushOffX = maxPushPx * pushDir * resultAlpha + wobble
+
+        local img = beamImgs and beamImgs[1]
+        if img then
+            local imgW, imgH = img:getDimensions()
+            -- Span from outer edge to outer edge so cards cover both beam ends
+            local beamX = atkCX - cardW * 0.5
+            local drawW = (defCX + cardW * 0.5) - beamX
+            local scl   = drawW / imgW
+            local drawH = imgH * scl
+
+            local beamA = math.min(1, math.max(clashX, resultAlpha * 0.95))
+
+            love.graphics.setColor(1, 1, 1, beamA)
+            local clipX = atkCX - cardW * 0.5
+            local clipW = (defCX + cardW * 0.5) - clipX
+            withScissor(clipX, cardTopY, clipW, cardH, function()
+                love.graphics.draw(img,
+                    beamX + pushOffX,
+                    vsCY - drawH * 0.5,
+                    0, scl, scl)
+            end)
+            love.graphics.setColor(1, 1, 1, 1)
         end
-        love.graphics.setLineWidth(1)
-        -- White glow "CLASH!"
+    end
+
+    -- Cards drawn on top of the beam
+    drawCombatCard(data.attacker, atkX, cardTopY, cardW, cardH, true,  outcome, atkReveal)
+    drawCombatCard(data.defender, defX, cardTopY, cardW, cardH, false, outcome, defReveal)
+
+    -- "CLASH!" floats above everything
+    if clashAlpha > 0.05 and (data.attacker and data.defender) and (clashX > 0.02 or resultAlpha > 0) then
         Fonts.with(22, function()
             love.graphics.setColor(GOLD[1], GOLD[2], GOLD[3], clashAlpha * 0.40)
-            love.graphics.printf("CLASH!", vsCX - W/2, vsCY - 14, W, "center")
+            love.graphics.printf("CLASH!", vsCX - W/2, vsCY - 118, W, "center")
             love.graphics.setColor(1.00, 0.96, 0.82, clashAlpha)
-            love.graphics.printf("CLASH!", vsCX - W/2, vsCY - 14, W, "center")
+            love.graphics.printf("CLASH!", vsCX - W/2, vsCY - 118, W, "center")
         end)
     end
 
-    -- State label below VS (.vs__state)
-    Fonts.with(9, function()
-        love.graphics.setColor(GOLD_DIM[1], GOLD_DIM[2], GOLD_DIM[3], 0.75)
-        love.graphics.printf(
-            clashX > 0.5 and "STATE  ·  CLASH" or "STATE  ·  VS",
-            vsCX - W/2, vsCY + vsR + 8, W, "center")
-    end)
-
-    -- ── 6. Stat comparison bar (.bar) ─────────────────────────────────────────
-    local barTopY = cardTopY + cardH + 16
-    local barW    = W - 320
-    local barX    = (W - barW) / 2
-    local barH    = 22
+    -- ── 6. Stat numbers below cards ──────────────────────────────────────────
+    local statY = cardTopY + cardH + 16
 
     if data.attacker and data.defender then
         local atkVal   = data.attacker.atk or 0
@@ -604,108 +622,48 @@ function CombatOverlay.draw(data, anim)
         local atkBonus = data.attacker.atkBonus or 0
         local defBonus = data.defender.defBonus or 0
         local defLabel = data.defender.isKeeper and "EFF.DEF" or "DEF"
+        local margin   = atkVal - defVal
+        local atkWin   = margin > 0
+        local defWin   = margin < 0
 
-        local total   = math.max(atkVal + defVal, 1)
-        local atkFill = math.floor(barW * atkVal / total)
-        local defFill = math.floor(barW * defVal / total)
+        local atkDim, defDim = 1.0, 1.0
+        if resultAlpha > 0 then
+            if atkWin then
+                defDim = math.max(0.22, 1.0 - 0.78 * resultAlpha)
+            elseif defWin then
+                atkDim = math.max(0.22, 1.0 - 0.78 * resultAlpha)
+            else
+                atkDim, defDim = 0.50, 0.50
+            end
+        end
 
-        -- Labels above bar
+        local numCX_atk = W * 0.25 + shakeX
+        local numCX_def = W * 0.75 + shakeX
+        local numW      = 150
+
+        Fonts.with(33, function()
+            love.graphics.setColor(ATK_C[1]*0.35, ATK_C[2]*0.35, ATK_C[3]*0.35, atkDim)
+            love.graphics.printf(tostring(atkVal), numCX_atk - numW, statY + 3, numW*2, "center")
+            love.graphics.setColor(ATK_C[1], ATK_C[2], ATK_C[3], atkDim)
+            love.graphics.printf(tostring(atkVal), numCX_atk - numW, statY, numW*2, "center")
+            love.graphics.setColor(DEF_C[1]*0.35, DEF_C[2]*0.35, DEF_C[3]*0.35, defDim)
+            love.graphics.printf(tostring(defVal), numCX_def - numW, statY + 3, numW*2, "center")
+            love.graphics.setColor(DEF_C[1], DEF_C[2], DEF_C[3], defDim)
+            love.graphics.printf(tostring(defVal), numCX_def - numW, statY, numW*2, "center")
+        end)
         Fonts.with(9, function()
-            -- ATK label + bonus tag
-            love.graphics.setColor(ATK_C[1], ATK_C[2], ATK_C[3], 1)
-            local atkLabel = "ATK  " .. atkVal
-            if atkBonus > 0 then atkLabel = atkLabel .. " (+" .. atkBonus .. " MID)" end
-            love.graphics.print(atkLabel, barX, barTopY - 18)
-            -- DEF label + bonus tag
-            love.graphics.setColor(DEF_C[1], DEF_C[2], DEF_C[3], 1)
-            local defLabelStr = defVal .. "  " .. defLabel
-            if defBonus > 0 then defLabelStr = "(+" .. defBonus .. " MID)  " .. defLabelStr end
-            love.graphics.printf(defLabelStr, barX, barTopY - 18, barW, "right")
+            local atkLbl = "ATK" .. (atkBonus > 0 and "  +" .. atkBonus .. " MID" or "")
+            local defLbl = defLabel .. (defBonus > 0 and "  +" .. defBonus .. " MID" or "")
+            love.graphics.setColor(ATK_C[1], ATK_C[2], ATK_C[3], 0.65 * atkDim)
+            love.graphics.printf(atkLbl, numCX_atk - numW, statY + 44, numW*2, "center")
+            love.graphics.setColor(DEF_C[1], DEF_C[2], DEF_C[3], 0.65 * defDim)
+            love.graphics.printf(defLbl, numCX_def - numW, statY + 44, numW*2, "center")
         end)
-
-        -- Track (.bar__track)
-        love.graphics.setColor(0.071, 0.031, 0.125, 1)
-        love.graphics.rectangle("fill", barX, barTopY, barW, barH, 2)
-        -- Tick marks (.bar__track::before)
-        love.graphics.setColor(1, 1, 1, 0.05)
-        for tx = barX, barX + barW, 40 do
-            love.graphics.line(tx, barTopY, tx, barTopY + barH)
-        end
-        -- Track border
-        love.graphics.setColor(GOLD[1], GOLD[2], GOLD[3], 0.22)
-        love.graphics.setLineWidth(1)
-        love.graphics.rectangle("line", barX, barTopY, barW, barH, 2)
-
-        -- ATK fill from left with angled right edge (.bar__fill--atk clip-path)
-        withScissor(barX, barTopY, atkFill + 2, barH, function()
-            love.graphics.setColor(ATK_C[1], ATK_C[2], ATK_C[3], 1)
-            love.graphics.polygon("fill",
-                barX,           barTopY,
-                barX + atkFill, barTopY,
-                barX + atkFill - 8, barTopY + barH,
-                barX,           barTopY + barH)
-            -- Shine
-            love.graphics.setColor(1, 1, 1, 0.18)
-            love.graphics.rectangle("fill", barX, barTopY, atkFill, barH/2)
-        end)
-
-        -- DEF fill from right with angled left edge (.bar__fill--def clip-path)
-        withScissor(barX + barW - defFill - 2, barTopY, defFill + 2, barH, function()
-            love.graphics.setColor(DEF_C[1], DEF_C[2], DEF_C[3], 0.80)
-            love.graphics.polygon("fill",
-                barX + barW - defFill + 8, barTopY,
-                barX + barW,               barTopY,
-                barX + barW,               barTopY + barH,
-                barX + barW - defFill,     barTopY + barH)
-            -- Shine
-            love.graphics.setColor(1, 1, 1, 0.18)
-            love.graphics.rectangle("fill",
-                barX + barW - defFill, barTopY, defFill, barH/2)
-        end)
-
-        -- Center line (.bar__center) — gold vertical
-        local centerX = math.floor(barX + barW/2)
-        love.graphics.setColor(GOLD[1], GOLD[2], GOLD[3], 0.55)
-        love.graphics.setLineWidth(2)
-        love.graphics.line(centerX, barTopY - 5, centerX, barTopY + barH + 5)
-        love.graphics.setLineWidth(1)
-
-        -- Margin zone + diagonal hatching (.bar__margin)
-        local margin = atkVal - defVal
-        if margin ~= 0 then
-            local marginW = math.abs(margin) / total * barW
-            local marginX = margin > 0 and centerX or (centerX - marginW)
-            marginX = math.max(barX, math.min(barX + barW - marginW, marginX))
-
-            withScissor(marginX, barTopY, math.max(marginW, 1), barH, function()
-                love.graphics.setColor(GOLD[1], GOLD[2], GOLD[3], 0.30)
-                love.graphics.setLineWidth(1)
-                for i = -barH, marginW + barH, 8 do
-                    love.graphics.line(
-                        marginX + i,        barTopY,
-                        marginX + i + barH, barTopY + barH)
-                end
-                -- Margin borders
-                love.graphics.setColor(GOLD[1], GOLD[2], GOLD[3], 0.70)
-                love.graphics.line(marginX, barTopY - 4, marginX, barTopY + barH + 4)
-                love.graphics.line(marginX + marginW, barTopY - 4, marginX + marginW, barTopY + barH + 4)
-            end)
-
-            -- Margin tag above bar (.bar__margin-tag)
-            local tagCX = marginX + marginW/2
-            Fonts.with(9, function()
-                love.graphics.setColor(GOLD[1], GOLD[2], GOLD[3], 0.90)
-                local sign = margin >= 0 and "+" or ""
-                love.graphics.printf(
-                    "Δ " .. sign .. margin,
-                    tagCX - 50, barTopY - 36, 100, "center")
-            end)
-        end
     end
 
     -- ── 7. Result (fades in after clash) (.result) ───────────────────────────
     if resultAlpha > 0.02 then
-        local resY = barTopY + barH + 16
+        local resY = cardTopY + cardH + 80
 
         -- LP damage number (.lp) — large gold
         if (outcome == "damage" or outcome == "defender_destroyed") and (data.damage or 0) > 0 then

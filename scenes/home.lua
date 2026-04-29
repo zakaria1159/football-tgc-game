@@ -1,6 +1,9 @@
-local Fonts = require("ui.fonts")
+local Fonts       = require("ui.fonts")
+local CardLibrary = require("ui.card_library")
 
 local Home = {}
+
+local libraryOpen = false
 
 -- Two-step flow: pick mode → pick deck (→ difficulty is always "medium" for now)
 local step         = "mode"   -- "mode" | "deck"
@@ -206,6 +209,27 @@ function Home.draw()
 
         drawDeckButtons(list, selectedDeck, H * 0.30)
 
+        -- Card Library button (classic mode only)
+        if selectedMode == "classic" then
+            local libBtnW = 220
+            local libBtnH = 36
+            local libBtnX = (W - libBtnW) / 2
+            local libBtnY = H * 0.65
+            local mx, my  = love.mouse.getPosition()
+            local hov = mx >= libBtnX and mx <= libBtnX + libBtnW
+                    and my >= libBtnY and my <= libBtnY + libBtnH
+            love.graphics.setColor(hov and 0.18 or 0.10, hov and 0.12 or 0.07, hov and 0.30 or 0.18, 1)
+            love.graphics.rectangle("fill", libBtnX, libBtnY, libBtnW, libBtnH, 5)
+            love.graphics.setColor(0.50, 0.38, 0.78, hov and 0.90 or 0.55)
+            love.graphics.setLineWidth(1.5)
+            love.graphics.rectangle("line", libBtnX, libBtnY, libBtnW, libBtnH, 5)
+            love.graphics.setLineWidth(1)
+            Fonts.with(11, function()
+                love.graphics.setColor(hov and 1.0 or 0.70, hov and 0.92 or 0.62, hov and 1.0 or 0.88, 1)
+                love.graphics.printf("CARD LIBRARY", libBtnX, libBtnY + libBtnH/2 - 7, libBtnW, "center")
+            end)
+        end
+
         Fonts.with(11, function()
             love.graphics.setColor(0.45, 0.42, 0.44, 1)
             love.graphics.printf("Arrow keys or click to select     ENTER to start     ESC to go back", 0, H * 0.72, W, "center")
@@ -216,11 +240,20 @@ function Home.draw()
         love.graphics.setColor(0.28, 0.26, 0.28, 1)
         love.graphics.printf("FOOTBALL TCG  v0.1", 0, H - 22, W, "center")
     end)
+
+    -- Card library overlay (on top of everything)
+    if libraryOpen then CardLibrary.draw() end
 end
 
 -- ── Input ─────────────────────────────────────────────────────────────────────
 
 function Home.keypressed(key)
+    if libraryOpen then
+        local r = CardLibrary.keypressed(key)
+        if r == "close" then libraryOpen = false end
+        return nil
+    end
+
     local list = selectedMode == "gwent" and gwentDeckList or deckList
 
     if step == "mode" then
@@ -249,6 +282,12 @@ function Home.keypressed(key)
 end
 
 function Home.mousepressed(x, y, button)
+    if libraryOpen then
+        local r = CardLibrary.mousepressed(x, y, button)
+        if r == "close" then libraryOpen = false end
+        return nil
+    end
+
     if button ~= 1 then return nil end
     local W = love.graphics.getWidth()
     local H = love.graphics.getHeight()
@@ -285,14 +324,32 @@ function Home.mousepressed(x, y, button)
                 return nil
             end
         end
+
+        -- Card Library button (classic mode only)
+        if selectedMode == "classic" then
+            local libBtnW = 220
+            local libBtnH = 36
+            local libBtnX = (W - libBtnW) / 2
+            local libBtnY = H * 0.65
+            if x >= libBtnX and x <= libBtnX + libBtnW and y >= libBtnY and y <= libBtnY + libBtnH then
+                libraryOpen = true
+                CardLibrary.open()
+                return nil
+            end
+        end
     end
     return nil
+end
+
+function Home.wheelmoved(x, y)
+    if libraryOpen then CardLibrary.wheelmoved(x, y) end
 end
 
 function Home.reset()
     step         = "mode"
     selectedMode = "classic"
     selectedDeck = 1
+    libraryOpen  = false
 end
 
 return Home
