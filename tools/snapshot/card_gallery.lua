@@ -35,7 +35,7 @@ function G.draw()
     Card.drawFace(rare, x, y, 120, 165, { selected = true }); x = x + 150
     Card.drawFace(keeper, x, y, 84, 106, {}); x = x + 110
     Card.drawFace(mid, x, y, 68, 80, {}); x = x + 90
-    Card.drawTooltip(rare, x, y)
+    Card.drawInfo(rare, x, y, 230)
     -- Row 3: zoom size + info
     Card.drawFace(rare, 30, 430, 250, 342, {})
     Card.drawInfo(rare, 300, 430, 300)

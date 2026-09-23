@@ -2,7 +2,6 @@
 -- Public API (unchanged contract for existing callers):
 --   Card.drawPitched(pitched, x, y, opts)   opts: w, h, faceDown, canFlip, pitch, selected, target
 --   Card.drawInHand(cardDef, x, y, opts)    opts: w, h, selected   → returns {x,y,w,h}
---   Card.drawTooltip(cardDef, x, y)
 --   Card.drawLarge(cardDef, x, y, w)        → face + info sticker, returns total h
 -- New:
 --   Card.layout(w, h)                       pure geometry (unit-tested)
@@ -304,17 +303,6 @@ function Card.drawInfo(cardDef, x, y, w, extraH)
     Draw.text(cardDef.abilityText or "", x + pad, y + pad + 38, w - pad * 2, "left",
         { size = 12, body = true, color = { 0.35, 0.35, 0.54, 1 } })
     return h
-end
-
-function Card.drawTooltip(cardDef, x, y)
-    local w = 230
-    local W, H = love.graphics.getWidth(), love.graphics.getHeight()
-    if x + w > W - 8 then x = W - 8 - w end
-    if x < 8 then x = 8 end
-    local h = Card.infoHeight(cardDef, w)
-    if y + h + 4 > H - 8 then y = H - 8 - 4 - h end   -- +4: sticker shadow
-    if y < 8 then y = 8 end
-    Card.drawInfo(cardDef, x, y, w)
 end
 
 -- Big card face with the info sticker (ability text) below it, all kept inside the

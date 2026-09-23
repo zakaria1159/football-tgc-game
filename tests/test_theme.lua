@@ -45,3 +45,11 @@ T.test("overlay outcome colours and deck fills are two-stop gradients", function
     end
     T.near(Theme.dim[4], 0.72)
 end)
+
+T.test("legacy tokens are gone", function()
+    for _, k in ipairs({ "cardColors", "cardArt", "cardAccents", "cardColorsDim", "cardHeaders", "atkColor",
+        "defColor", "pitch", "hud", "logColors", "phases", "card", "pitchCard", "slot", "layout", "font",
+        "exhaustOverlay", "settlingOverlay" }) do
+        T.eq(Theme[k], nil, "Theme." .. k .. " still exists")
+    end
+end)

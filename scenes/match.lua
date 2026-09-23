@@ -1,6 +1,4 @@
 local flux          = require("lib.flux")
-local Theme         = require("ui.theme")
-local Fonts         = require("ui.fonts")
 local Draw          = require("ui.kit.draw")
 local Pitch         = require("ui.pitch")
 local Hand          = require("ui.hand")
