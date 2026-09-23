@@ -131,4 +131,52 @@ function Character.draw(screenW, screenH)
     love.graphics.setColor(1, 1, 1, 1)
 end
 
+-- ── Arcade match UI ───────────────────────────────────────────────────────────
+-- Source-pixel regions in the 1408×768 character art.
+local FACE    = { x = 490, y = 60, size = 320 }   -- square around the face (round avatar)
+local BODY_CX = 585                               -- horizontal centre of the body (portrait crop)
+
+-- Bottom-left portrait: art scaled to height h and cropped (quad, no scissor) to width w.
+local _quads = {}
+function Character.drawPortrait(x, y, w, h)
+    if not loaded then return end
+    local img = imgs[state] or imgs.thinking
+    local iw, ih = img:getDimensions()
+    local s = h / ih
+    local srcW = math.min(iw, w / s)
+    local srcX = math.max(0, math.min(iw - srcW, BODY_CX - srcW / 2))
+    local key = math.floor(srcX) .. ":" .. math.floor(srcW) .. ":" .. iw
+    local q = _quads[key]
+    if not q then
+        q = love.graphics.newQuad(srcX, 0, srcW, ih, iw, ih)
+        _quads[key] = q
+    end
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(img, q, x, y + bounceY * 0.6, 0, s, s)
+end
+
+-- Round face avatar (top bar): textured unit-circle fan mesh, cached per image.
+local _avatarMeshes = {}
+function Character.drawAvatar(cx, cy, r)
+    if not loaded then return end
+    local img = imgs[state] or imgs.thinking
+    local mesh = _avatarMeshes[img]
+    if not mesh then
+        local iw, ih = img:getDimensions()
+        local fcx, fcy, fr = FACE.x + FACE.size / 2, FACE.y + FACE.size / 2, FACE.size / 2
+        local verts = { { 0, 0, fcx / iw, fcy / ih, 1, 1, 1, 1 } }
+        local seg = 40
+        for i = 0, seg do
+            local a = i / seg * math.pi * 2
+            local ux, uy = math.cos(a), math.sin(a)
+            verts[#verts + 1] = { ux, uy, (fcx + ux * fr) / iw, (fcy + uy * fr) / ih, 1, 1, 1, 1 }
+        end
+        mesh = love.graphics.newMesh(verts, "fan", "static")
+        mesh:setTexture(img)
+        _avatarMeshes[img] = mesh
+    end
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(mesh, cx, cy, 0, r, r)
+end
+
 return Character
