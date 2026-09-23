@@ -201,28 +201,33 @@ function Store:declareAttack(attackerSlot, defenderSlot)
         return result, nil
     end
 
-    -- LAST_DEFENDER_FOUL: the player's attack on the opponent's last face-up defender
-    -- was beaten (not a tie), so that defender is still standing.
-    if lastDefender and result.outcome == "attacker_exhausted" then
-        local ldfTrap, ldfIdx = self:_findTrap(match.players.player.pitch, "LAST_DEFENDER_FOUL")
-        if ldfTrap then
-            self.trapWindow = {
-                type               = "post_last_defender",
-                defenderSlot       = defenderSlot,
-                defenderStillAlive = true,
-                traps              = { { card = ldfTrap, slotIndex = ldfIdx } },
-                attackerSnap       = snap.attacker,
-                defenderSnap       = snap.defender,
-            }
-            self:_checkHalf()
-            self:_notify()
-            return result, nil
-        end
+    if self:_lastDefenderFoulWindow(lastDefender, snap, result, defenderSlot) then
+        self:_checkHalf()
+        self:_notify()
+        return result, nil
     end
 
     self:_checkHalf()
     self:_notify()
     return result, nil
+end
+
+-- LAST_DEFENDER_FOUL: the player's attack on the opponent's last face-up defender
+-- (lastDefender, judged before the attack) was beaten (not a tie), so that defender is
+-- still standing. Opens the player's window; returns true when it did.
+function Store:_lastDefenderFoulWindow(lastDefender, snap, result, defenderSlot)
+    if not (lastDefender and result and result.outcome == "attacker_exhausted") then return false end
+    local ldfTrap, ldfIdx = self:_findTrap(self.match.players.player.pitch, "LAST_DEFENDER_FOUL")
+    if not ldfTrap then return false end
+    self.trapWindow = {
+        type               = "post_last_defender",
+        defenderSlot       = defenderSlot,
+        defenderStillAlive = true,
+        traps              = { { card = ldfTrap, slotIndex = ldfIdx } },
+        attackerSnap       = snap.attacker,
+        defenderSnap       = snap.defender,
+    }
+    return true
 end
 
 -- Red Card / VAR after any resolved attack or shot: declared attack, cover or
@@ -321,6 +326,9 @@ end
 -- overruled by Manager's Challenge). Returns true when a cover or trap window opened.
 function Store:_resumeAttack(tw)
     local snap   = { attacker = tw.attackerSnap, defender = tw.defenderSnap }
+    local activeId     = self.match.activePlayer
+    local lastDefender = activeId == "player"
+                         and self:_isLastFaceUpDefender(State.other(activeId), tw.defenderSlot)
     local result = Phases.attack(self.match, tw.attackerSlot, tw.defenderSlot)
     if not result then return false end
     if result.outcome == "cover_needed" then
@@ -333,7 +341,12 @@ function Store:_resumeAttack(tw)
         return true
     end
     self:_pushCombat(snap, result)
-    return self:_afterCombatTraps(snap, result, tw.attackerSlot)
+    if self:_afterCombatTraps(snap, result, tw.attackerSlot) then return true end
+    if self:_lastDefenderFoulWindow(lastDefender, snap, result, tw.defenderSlot) then
+        self:_checkHalf()
+        return true
+    end
+    return false
 end
 
 -- Called after the player decides to activate or pass a trap window.
@@ -568,6 +581,9 @@ function Store:_checkHalf()
     local hw, reason = State.checkHalfEnd(self.match)
     if hw and not self.match.winner then
         State.endHalf(self.match, hw, reason)
+        -- A window from the old half must not resolve against the new half's board.
+        self.trapWindow  = nil
+        self.coverWindow = nil
     end
 end
 

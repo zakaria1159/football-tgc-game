@@ -38,7 +38,8 @@ local function newPlayerState(id, deck)
     if not hasKeeper then
         for i = handSize + 1, #shuffled do
             if shuffled[i].type == "keeper" then
-                shuffled[i], shuffled[math.random(1, handSize)] = shuffled[math.random(1, handSize)], shuffled[i]
+                local j = math.random(1, handSize)
+                shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
                 break
             end
         end
@@ -285,7 +286,8 @@ function State._resetHalf(matchState, newHalf)
         if not hasKeeper then
             for i = handSize + 1, #shuffled do
                 if shuffled[i].type == "keeper" then
-                    shuffled[i], shuffled[math.random(1, handSize)] = shuffled[math.random(1, handSize)], shuffled[i]
+                    local j = math.random(1, handSize)
+                    shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
                     break
                 end
             end

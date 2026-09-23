@@ -52,6 +52,6 @@ T.test("midfield: an empty deck just skips the extra card", function()
     m.players.player.deck = {}
     s:drawPhase()
     T.eq(#m.players.player.hand, 0)
-    T.eq(#H.events(m, "midfield_control"), 1)
+    T.eq(#H.events(m, "midfield_control"), 0)  -- nothing drawn: no event, no banner
     T.eq(m.phase, "summon")
 end)

@@ -27,9 +27,12 @@ function Phases._midfieldControl(matchState)
     local myPow  = Combat.midfielderPower(matchState.players[id].pitch)
     local oppPow = Combat.midfielderPower(matchState.players[State.other(id)].pitch)
     if myPow <= oppPow then return end
+    -- Nothing to draw (empty deck): no bonus, and no event for the UI to announce.
+    local n = math.min(C.MATCH.MIDFIELD_CONTROL_DRAW, #matchState.players[id].deck)
+    if n <= 0 then return end
     State.log(matchState, T.EventType.MIDFIELD_CONTROL,
         { player = id, myPow = myPow, oppPow = oppPow, bonus = "draw" })
-    for _ = 1, C.MATCH.MIDFIELD_CONTROL_DRAW do
+    for _ = 1, n do
         local card = State.drawCard(matchState, id)
         if card then
             State.log(matchState, T.EventType.CARD_DRAWN,
@@ -328,7 +331,8 @@ end
 -- card shoots at the keeper, or scores an open goal when the keeper slot is empty.
 function Phases._shootAtGoal(matchState, attacker, attackerSlot, opponentId)
     if attackerSlot.type == "midfielder" then
-        attacker.exhausted = true
+        attacker.exhausted      = true
+        attacker.usedAsAttacker = true  -- a wasted attack still counts (keeper +150 lost)
         State.log(matchState, "attack_wasted", { reason = "midfielder_keeper" })
         return { outcome = "wasted", reason = "midfielder_keeper" }
     end
@@ -379,7 +383,8 @@ function Phases._handleEmpty(matchState, attacker, attackerSlot, emptySlot, oppo
 
     -- Midfielder cannot attack an empty midfielder slot
     if attackerSlot.type == "midfielder" and emptySlot.type == "midfielder" then
-        attacker.exhausted = true
+        attacker.exhausted      = true
+        attacker.usedAsAttacker = true  -- a wasted attack still counts (keeper +150 lost)
         State.log(matchState, "attack_wasted", { reason = "midfielder_empty_midfielder" })
         return { outcome = "wasted", reason = "midfielder_empty_midfielder" }
     end
@@ -527,7 +532,8 @@ function Phases._goalAttempt(matchState, striker, keeper, attackerSlot, opponent
     local activeId = matchState.activePlayer
     local oppPitch = matchState.players[opponentId].pitch
     local atkPitch = matchState.players[activeId].pitch
-    local result   = Combat.resolveShot(striker, keeper, oppPitch, atkPitch, penaltyMode)
+    local result   = Combat.resolveShot(striker, keeper, oppPitch, atkPitch, penaltyMode,
+                                        attackerSlot and attackerSlot.type)
     result.attackerSlot = attackerSlot
 
     -- A face-down keeper is revealed (it stays in defense mode)
