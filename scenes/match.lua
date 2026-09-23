@@ -276,6 +276,7 @@ function Match.update(dt)
     end
     if match.winner then return end
     if store.trapWindow then return end  -- pause all game logic while any trap window is open
+    if match.halfTimeBreak then store:kickOff() end -- TEMP until half-time screen
 
     if match.activePlayer == "player" and match.phase == "draw" then
         store:drawPhase()

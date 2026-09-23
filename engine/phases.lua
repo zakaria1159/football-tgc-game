@@ -545,6 +545,7 @@ function Phases._goalAttempt(matchState, striker, keeper, attackerSlot, opponent
     if result.outcome == "damage" then
         if keeper then keeper.exhausted = true end
         State.dealDamage(matchState, activeId, result.damage)
+        State.countGoal(matchState, activeId)
         State.log(matchState, T.EventType.LP_DAMAGE,
             { dealer = activeId, damage = result.damage,
               remainingLP = matchState.players[opponentId].lp,
@@ -685,6 +686,7 @@ function Phases._destroyCard(matchState, playerId, slotType, slotIndex)
 
     if card then
         table.insert(player.graveyard, card.definition)
+        State.countCardLost(matchState, playerId)
     end
 end
 

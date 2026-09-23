@@ -60,6 +60,8 @@ local function newPlayerState(id, deck)
         halvesWon        = 0,
         totalDamageDealt = 0,
         halfDamageDealt  = 0,       -- LP damage dealt this half (half-limit / Extra Time decider)
+        halfGoals        = 0,       -- goals scored this half (shots that dealt LP damage, minus VAR)
+        halfCardsLost    = 0,       -- own field cards destroyed this half
         nextTurnSummonLimit = nil,  -- set by TIME_WASTING trap
     }
 end
@@ -96,6 +98,9 @@ function State.newMatch(playerDeck, opponentDeck)
         },
         winner = nil,
         log    = {},
+        halfTimeBreak = false,      -- true between a half ending and State.kickOff
+        mulliganUsed  = { player = false, opponent = false },   -- this break
+        lastHalfStats = nil,        -- { player = { lp, damage, goals, lost }, opponent = {...} }
     }
 end
 
@@ -139,13 +144,27 @@ function State.dealDamage(matchState, dealerId, amount)
     dealer.halfDamageDealt  = (dealer.halfDamageDealt or 0) + amount
 end
 
+-- A shot by scorerId dealt LP damage: one goal this half.
+function State.countGoal(matchState, scorerId)
+    local ps = matchState.players[scorerId]
+    ps.halfGoals = (ps.halfGoals or 0) + 1
+end
+
+-- One of ownerId's field cards was destroyed this half.
+function State.countCardLost(matchState, ownerId)
+    local ps = matchState.players[ownerId]
+    ps.halfCardsLost = (ps.halfCardsLost or 0) + 1
+end
+
 -- Undo damage (VAR): the victim gets the LP back and the dealer's totals drop.
+-- VAR only ever overturns a goal, so the dealer's goal count drops too.
 function State.refundDamage(matchState, dealerId, amount)
     local dealer = matchState.players[dealerId]
     local victim = matchState.players[State.other(dealerId)]
     victim.lp = victim.lp + amount
     dealer.totalDamageDealt = dealer.totalDamageDealt - amount
     dealer.halfDamageDealt  = (dealer.halfDamageDealt or 0) - amount
+    dealer.halfGoals        = math.max(0, (dealer.halfGoals or 0) - 1)
 end
 
 -- Winner of a half that ran out of rounds: more LP → more damage dealt this half →
@@ -211,10 +230,28 @@ function State.checkHalfEnd(matchState)
     return nil
 end
 
+-- Stats of the half just played (read by the half-time screen), taken before the reset.
+local function recordHalfStats(matchState)
+    local stats = {}
+    for _, seat in ipairs({ "player", "opponent" }) do
+        local ps = matchState.players[seat]
+        stats[seat] = {
+            lp     = ps.lp,
+            damage = ps.halfDamageDealt or 0,
+            goals  = ps.halfGoals or 0,
+            lost   = ps.halfCardsLost or 0,
+        }
+    end
+    matchState.lastHalfStats = stats
+end
+
 -- Called when a half ends. Advances to next half or ends the match.
+-- When the match goes on (half 2, Extra Time) the new half starts in a half-time break
+-- (matchState.halfTimeBreak) until State.kickOff.
 function State.endHalf(matchState, halfWinner, reason)
     State.log(matchState, "half_end", { half = matchState.half, winner = halfWinner, reason = reason or "lp" })
     matchState.players[halfWinner].halvesWon = matchState.players[halfWinner].halvesWon + 1
+    recordHalfStats(matchState)
 
     local p = matchState.players.player
     local o = matchState.players.opponent
@@ -252,12 +289,16 @@ function State._resetHalf(matchState, newHalf)
     matchState.coverUsed    = { player = false, opponent = false }
     matchState.strategyPlayedThisTurn = false
     matchState.bypassCoverNextStrikerAttack = nil
+    matchState.halfTimeBreak = true
+    matchState.mulliganUsed  = { player = false, opponent = false }
 
     -- Fixed order (not pairs): the redeal consumes math.random, so seeded runs repeat.
     for _, seat in ipairs({ "player", "opponent" }) do
         local ps = matchState.players[seat]
         ps.lp                  = C.MATCH.STARTING_LP
         ps.halfDamageDealt     = 0
+        ps.halfGoals           = 0
+        ps.halfCardsLost       = 0
         ps.nextTurnSummonLimit = nil
 
         -- Collect all non-destroyed cards (hand + pitch) back into pool for redeal.
@@ -300,6 +341,42 @@ function State._resetHalf(matchState, newHalf)
         ps.deck  = shuffled
         ps.pitch = newPitch()
     end
+end
+
+-- Ends the half-time break: play resumes.
+function State.kickOff(matchState)
+    matchState.halfTimeBreak = false
+end
+
+-- Half-time swap: during the break, playerId sends back up to C.MATCH.MULLIGAN_MAX cards
+-- from their hand; they go into the deck, the deck is shuffled and as many cards are
+-- drawn. Once per break per player (a refused or empty swap does not use it). No keeper
+-- guarantee. Returns the number of cards swapped, or 0 + reason when refused.
+function State.mulligan(matchState, playerId, cardIds)
+    if not matchState.halfTimeBreak then return 0, "not in a half-time break" end
+    matchState.mulliganUsed = matchState.mulliganUsed or {}
+    if matchState.mulliganUsed[playerId] then return 0, "already swapped this break" end
+    local n = #(cardIds or {})
+    if n == 0 then return 0 end
+    if n > C.MATCH.MULLIGAN_MAX then return 0, "at most " .. C.MATCH.MULLIGAN_MAX .. " cards" end
+
+    local ps   = matchState.players[playerId]
+    local seen = {}
+    for _, id in ipairs(cardIds) do
+        if seen[id] then return 0, "card chosen twice" end
+        seen[id] = true
+        local inHand = false
+        for _, c in ipairs(ps.hand) do if c.id == id then inHand = true; break end end
+        if not inHand then return 0, "card not in hand" end
+    end
+
+    for _, id in ipairs(cardIds) do
+        table.insert(ps.deck, State.removeFromHand(ps, id))
+    end
+    ps.deck = shuffle(ps.deck)
+    for _ = 1, n do State.drawCard(matchState, playerId) end
+    matchState.mulliganUsed[playerId] = true
+    return n
 end
 
 return State

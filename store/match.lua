@@ -41,6 +41,7 @@ function Store:_pushTrapActivation(activatorId, trapDef, contextText)
 end
 
 function Store:drawPhase()
+    if self:_inBreak() then return nil, "half-time" end
     if not self:_assertPhase("draw") then return end
     Phases.draw(self.match)
     self.match.phase = "summon"
@@ -48,6 +49,7 @@ function Store:drawPhase()
 end
 
 function Store:summonCard(cardId, slotType, slotIndex, mode)
+    if self:_inBreak() then return nil, "half-time" end
     if not self:_assertPhase("summon") then return false, "wrong phase" end
     local ok, err = Phases.summon(self.match, cardId, slotType, slotIndex, mode or "attack")
     if ok then self:_notify() end
@@ -56,6 +58,7 @@ end
 
 -- Perform a free summon (Substitution replacement) — bypasses summon count.
 function Store:freeSummon(cardId, slotType, slotIndex, mode)
+    if self:_inBreak() then return nil, "half-time" end
     if not self:_assertPhase("summon") then return false, "wrong phase" end
     local ok, err = Phases.summon(self.match, cardId, slotType, slotIndex, mode or "attack", true)
     if ok then self:_notify() end
@@ -63,6 +66,7 @@ function Store:freeSummon(cardId, slotType, slotIndex, mode)
 end
 
 function Store:changeMode(slotType, slotIndex)
+    if self:_inBreak() then return nil, "half-time" end
     if not self:_assertPhase("summon") then return false, "wrong phase" end
     local ok, err = Phases.changeMode(self.match, slotType, slotIndex)
     if ok then self:_notify() end
@@ -70,6 +74,7 @@ function Store:changeMode(slotType, slotIndex)
 end
 
 function Store:startAttackPhase()
+    if self:_inBreak() then return nil, "half-time" end
     if not self:_assertPhase("summon") then return end
     self.match.phase = "attack"
     self:_notify()
@@ -94,6 +99,7 @@ function Store:_isLastFaceUpDefender(defenderId, defenderSlot)
 end
 
 function Store:declareAttack(attackerSlot, defenderSlot)
+    if self:_inBreak() then return nil, "half-time" end
     if not self:_assertPhase("attack") then return nil, "wrong phase" end
     if self.match.winner then return nil, "match over" end
 
@@ -352,6 +358,7 @@ end
 -- Called after the player decides to activate or pass a trap window.
 -- trapSlotIndex = 1-based index within trapWindow.traps to activate, or nil to pass.
 function Store:resolveTrap(trapSlotIndex)
+    if self:_inBreak() then return nil, "half-time" end
     if not self.trapWindow then return end
     local tw = self.trapWindow
     self.trapWindow = nil
@@ -493,6 +500,7 @@ end
 
 -- Play a strategy card from hand.
 function Store:playStrategy(cardId, opts)
+    if self:_inBreak() then return nil, "half-time" end
     local match    = self.match
     local activeId = match.activePlayer
 
@@ -531,6 +539,7 @@ end
 
 -- Called after the player decides to cover or let through.
 function Store:resolveCover(covererSlot)
+    if self:_inBreak() then return nil, "half-time" end
     if not self.coverWindow then return end
 
     local attackerSlot = self.coverWindow.attackerSlot
@@ -564,10 +573,31 @@ function Store:resolveCover(covererSlot)
 end
 
 function Store:endTurn()
+    if self:_inBreak() then return nil, "half-time" end
     self.coverWindow = nil
     self.trapWindow  = nil
     Phases.endTurn(self.match)
+    -- endTurn is refused during a break, so a break now means this turn ended the half.
+    if self.match.halfTimeBreak then self:_startBreak() end
     self:_notify()
+end
+
+-- ── Half-time break ────────────────────────────────────────────────────────────
+
+-- Half-time swap for a seat (the human's, from the half-time screen). Returns the number
+-- of cards swapped (0 + reason when refused; see State.mulligan).
+function Store:mulligan(cardIds, playerId)
+    local n, err = State.mulligan(self.match, playerId or "player", cardIds)
+    if n > 0 then self:_notify() end
+    return n, err
+end
+
+-- Ends the half-time break; play resumes with the new half's first turn.
+function Store:kickOff()
+    if not self:_inBreak() then return false end
+    State.kickOff(self.match)
+    self:_notify()
+    return true
 end
 
 function Store:popCombat()
@@ -584,7 +614,19 @@ function Store:_checkHalf()
         -- A window from the old half must not resolve against the new half's board.
         self.trapWindow  = nil
         self.coverWindow = nil
+        if self.match.halfTimeBreak then self:_startBreak() end
     end
+end
+
+-- A half-time break has just started: the AI seat ("opponent") makes its swap now; the
+-- human's comes from the half-time screen (Store:mulligan), then Store:kickOff.
+function Store:_startBreak()
+    local m = self.match
+    State.mulligan(m, "opponent", AI.mulliganChoice(m, "opponent"))
+end
+
+function Store:_inBreak()
+    return self.match ~= nil and self.match.halfTimeBreak == true
 end
 
 function Store:_pushCombat(snap, result)
