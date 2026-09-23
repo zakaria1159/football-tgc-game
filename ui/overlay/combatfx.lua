@@ -2,6 +2,7 @@
 -- card views built from combat snapshots, shatter pieces. ui/overlay/combat.lua draws
 -- from these; scenes/match.lua advances the time and fires the LP banner at CLASH.
 local Theme = require("ui.theme")
+local Resolver = require("engine.cards.resolver")
 
 local Fx = {}
 
@@ -157,6 +158,42 @@ function Fx.fates(outcome)
     return nil, nil
 end
 
+-- ── Ability tags ──────────────────────────────────────────────────────────────
+
+-- "LINK-UP +150" for an ability tag { name, amount } (no number when amount is 0).
+function Fx.tagText(tag)
+    local s = string.upper(tag.name or tag.keyword or "?")
+    if (tag.amount or 0) > 0 then s = s .. " +" .. tag.amount end
+    return s
+end
+
+-- Tag texts for one side of a combat snapshot: which = "atk" (atkTags) or "def" (defTags).
+function Fx.bonusTags(snap, which)
+    local out = {}
+    for _, t in ipairs(snap and snap[which .. "Tags"] or {}) do out[#out + 1] = Fx.tagText(t) end
+    return out
+end
+
+-- Stat keywords are shown as badge tags, not in the ability line.
+Fx.STAT_KEYWORDS = {
+    LINK_UP = true, INSTINCT = true, OPPORTUNIST = true, LAST_MAN = true, COUNTER_PRESS = true,
+    SAFE_HANDS = true, ENGINE = true, OVERLAP = true, BOLT = true, FORTRESS = true,
+}
+
+-- Rule abilities that fired during this attack, as one line ("CLINICAL!",
+-- "IMMOVABLE · HARD TACKLE!"), each named once; nil when there are none.
+function Fx.abilityLine(rec)
+    local names, seen = {}, {}
+    for _, kw in ipairs(rec and rec.abilities or {}) do
+        if not Fx.STAT_KEYWORDS[kw] and not seen[kw] then
+            seen[kw] = true
+            names[#names + 1] = string.upper(Resolver.NAMES[kw] or kw)
+        end
+    end
+    if #names == 0 then return nil end
+    return table.concat(names, " · ") .. "!"
+end
+
 -- ── Card views ────────────────────────────────────────────────────────────────
 
 local SOURCES = { "strikers", "midfielders", "defenders", "keepers", "traps", "strategies" }
@@ -175,7 +212,7 @@ end
 
 -- Everything needed to draw a combat snapshot as a real card. Badge totals always equal
 -- the snapshot's atk/def; a keeper's bonus is its effective DEF minus its base DEF.
---   → { cardDef, stats = { atk, def }, atkBonus, defBonus, hidden, atk, def } | nil
+--   → { cardDef, stats = { atk, def }, atkBonus, defBonus, hidden, atk, def, atkTags, defTags } | nil
 function Fx.cardView(snap, lookup)
     if not snap then return nil end
     local def = lookup and lookup(snap.name, snap.type)
@@ -194,6 +231,8 @@ function Fx.cardView(snap, lookup)
         hidden   = snap.wasHidden,
         atk      = snap.atk or 0,
         def      = snap.def or 0,
+        atkTags  = Fx.bonusTags(snap, "atk"),
+        defTags  = Fx.bonusTags(snap, "def"),
     }
 end
 

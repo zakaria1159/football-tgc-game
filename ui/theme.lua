@@ -24,6 +24,7 @@ Theme.grad = {
     lpYou = { hex("7dff8a"), hex("2ec44a") },
     lpOpp = { hex("ff8a8a"), hex("e0243a") },
     bonus = { hex("7dff8a"), hex("22b347") },
+    keyword = { hex("fff3a8"), hex("ffc93a") },   -- ability keyword pills and tags
 }
 
 Theme.highlight = {

@@ -513,4 +513,59 @@ S.midfield = {
     { 2.8, function(c) c.quit() end },
 }
 
+-- Keyword pills on every field card, the hand size, revealed / exhausted / flip states, a
+-- 68×80 card and a zoom card with its info sticker (tools/snapshot/card_gallery.lua).
+S.keywords = {
+    { 0.3, function() love.draw = require("tools.snapshot.card_gallery").drawKeywords end },
+    { 1.0, function(c) c.snap("gallery") end },
+    { 1.5, function(c) c.quit() end },
+}
+
+-- Abilities through the real engine (harness-only board): pills and bonus badges on the
+-- pitch, the zoom's ability line, a real shot with Overlap + Link-up + Opportunist tags, a
+-- synthetic Punch clear save for the ability pill, then a real Press summon for the toast.
+S.abilities = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, kickOff },
+    { 1.5, function()
+        local m = store().match
+        local P, O = m.players.player.pitch, m.players.opponent.pitch
+        P.strikers[1]  = pitched("str-poacher", "striker")
+        P.strikers[2]  = pitched("str-complete-forward", "striker")
+        P.midfielder   = pitched("mid-direct-support", "midfielder")
+        O.keeper       = pitched("keeper-iron-fists", "keeper", "defense")
+        O.defenders[1] = pitched("def-stopper", "defender")
+        m.turn, m.phase = 2, "attack"
+    end },
+    { 1.9, function(c) c.snap("board") end },
+    { 2.0, function() move(center(Layout.slot("player", "striker", 1))) end },
+    { 2.6, function(c) c.snap("zoom") end },
+    { 2.7, function()
+        move(640, 60)
+        local st = store()
+        st:declareAttack({ type = "striker", index = 1 }, { type = "keeper", index = 0 })
+        require("scenes.match").debugOverlay("combat", st:popCombat())
+    end },
+    { 4.1, function(c) c.snap("tags") end },
+    { 4.6, function(c) c.snap("result") end },
+    { 4.7, function() love.keypressed("space") end },
+    { 4.8, combat({
+        attacker = snapFrom("str-speed-demon"),
+        defender = snapFrom("keeper-iron-fists", { def = 2200, isKeeper = true }),
+        outcome = "save", margin = -50, damage = 0, activePlayer = "player",
+        abilities = { "PUNCH_CLEAR" } }) },
+    { 6.9, function(c) c.snap("punch") end },
+    { 7.0, function() love.keypressed("space") end },
+    { 7.1, function()
+        local st = store()
+        local m  = st.match
+        m.phase, m.summonCount = "summon", 0
+        local pf = defById("str-pressing-forward")
+        table.insert(m.players.player.hand, pf)
+        st:summonCard(pf.id, "defender", 2, "attack")
+    end },
+    { 7.6, function(c) c.snap("toasts") end },
+    { 7.8, function(c) c.quit() end },
+}
+
 return S

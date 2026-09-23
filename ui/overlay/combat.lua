@@ -1,6 +1,7 @@
 -- Combat overlay (arcade). Behaviour and data contract unchanged:
---   rec = { attacker, defender, outcome, margin, damage, activePlayer }   (store:_pushCombat)
---   attacker / defender = { name, type, mode, wasHidden, atk, def, atkBonus, defBonus, isKeeper }
+--   rec = { attacker, defender, outcome, margin, damage, activePlayer, abilities }   (store:_pushCombat)
+--   attacker / defender = { name, type, mode, wasHidden, atk, def, atkBonus, defBonus, isKeeper,
+--                           atkTags, defTags }
 -- CombatOverlay.draw(rec, t): t = seconds since the overlay opened. All timing lives in
 -- ui/overlay/combatfx.lua (pure, unit-tested). The player's card is always on the left
 -- (Fx.sides): when the opponent attacks, the attacker is drawn on the right and lunges left.
@@ -111,7 +112,23 @@ local function drawClash(p)
     love.graphics.pop()
 end
 
--- Big ATK / DEF badges that grow and count up, with their labels.
+local TAG_Y = 462   -- ability tag row, between the cards and the big badges
+
+-- Ability bonus tags ("LINK-UP +150") centred on cx, at most 3.
+local function drawTags(tags, cx, alpha)
+    local n = math.min(#tags, 3)
+    if n == 0 then return end
+    local tw, th, gap = 140, 26, 8
+    local x0 = cx - (n * tw + (n - 1) * gap) / 2
+    for i = 1, n do
+        Draw.pill(x0 + (i - 1) * (tw + gap), TAG_Y, tw, th, tags[i], {
+            fill = Theme.grad.keyword, textColor = Theme.inkText, size = 14, border = 2, shadow = 3,
+            alpha = alpha,
+        })
+    end
+end
+
+-- Big ATK / DEF badges that grow and count up, with their labels and ability tags.
 local function drawBadges(rec, p, sides)
     if p.badge <= 0 then return end
     local s = BADGE_S * p.badge
@@ -121,9 +138,10 @@ local function drawBadges(rec, p, sides)
     if a then
         local x = sides.atk.cx + p.shake
         Draw.atkBadge(x, BADGE_Y, s, Fx.countValue(a.atk, p.count))
-        Draw.pill(x - 60, labelY, 120, 28, a.atkBonus > 0 and ("ATK +" .. a.atkBonus .. " MID") or "ATK", {
+        Draw.pill(x - 60, labelY, 120, 28, a.atkBonus > 0 and ("ATK +" .. a.atkBonus) or "ATK", {
             fill = Theme.white, textColor = Theme.grad.atk[2], size = 16, border = 2, shadow = 3, alpha = la,
         })
+        drawTags(a.atkTags, x, la)
     end
     if d then
         local x = sides.def.cx + p.shake
@@ -131,6 +149,7 @@ local function drawBadges(rec, p, sides)
         Draw.pill(x - 60, labelY, 120, 28, rec.defender.isKeeper and "EFF. DEF" or "DEF", {
             fill = Theme.white, textColor = Theme.grad.def[2], size = 16, border = 2, shadow = 3, alpha = la,
         })
+        drawTags(d.defTags, x, la)
     end
 end
 
@@ -171,6 +190,14 @@ function CombatOverlay.draw(rec, t)
             fill = st.fill, textColor = st.textColor, size = 38, textShadow = st.shadow,
         })
         love.graphics.pop()
+    end
+    -- Rule abilities that fired (Clinical, Immovable, Punch clear …), under the banner.
+    local line = Fx.abilityLine(rec)
+    if line and p.result > 0 then
+        Draw.pill(W / 2 - 180, 98, 360, 36, line, {
+            fill = Theme.grad.keyword, textColor = Theme.inkText, size = 20, border = 3, shadow = 4,
+            alpha = math.min(1, p.result),
+        })
     end
     if p.hint > 0 then Draw.hintPill(W / 2, 744, "CLICK OR SPACE", p.hint) end
 end
