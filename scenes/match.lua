@@ -13,7 +13,7 @@ local Audio         = require("ui.audio")
 local Character     = require("ui.character")
 local C             = require("engine.constants")
 local PauseMenu     = require("ui.pause_menu")
-local CardLibrary   = require("ui.card_library")
+local CardLibrary   = require("ui.menu.library")
 local Layout        = require("ui.match.layout")
 local TopBar        = require("ui.match.topbar")
 local BottomBar     = require("ui.match.bottombar")
@@ -141,6 +141,8 @@ end
 function Match.update(dt)
     if not store or not store.match then return end
     local match = store.match
+
+    if libraryOpen then CardLibrary.update(dt, mouseX, mouseY) end
 
     Confetti.update(dt)
     Character.update(dt, match.players.player.lp)

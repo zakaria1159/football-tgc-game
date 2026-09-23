@@ -14,6 +14,17 @@ local function move(x, y) love.mousemoved(x, y, 0, 0) end
 local function press(x, y) love.mousepressed(x, y, 1) end
 local function click(x, y) move(x, y); press(x, y) end
 
+-- Harness-only: ignore the physical cursor. The OS sends mousemoved when the window opens
+-- or the real mouse moves, and hovering a home button moves the keyboard focus to it, so
+-- only the scripted move() above may drive the mouse (it calls love.mousemoved directly).
+if love.handlers then love.handlers.mousemoved = function() end end
+
+-- Home → PLAY → deck select → KICK OFF with the first deck (The Beautiful Game).
+local function kickOff()
+    love.keypressed("return")
+    love.keypressed("return")
+end
+
 local function firstOf(types)
     for _, t in ipairs(types) do
         for _, c in ipairs(hand()) do
@@ -58,20 +69,39 @@ local function byTime(steps)
     return steps
 end
 
+-- Home menu, keyboard focus, deck select (two selections), back to home.
 S.home = {
-    { 1.0, function(c) c.snap("deck") end },
-    { 1.5, function(c) c.quit() end },
+    { 1.0, function(c) c.snap("menu") end },
+    { 1.1, function() love.keypressed("down") end },
+    { 1.5, function(c) c.snap("focus") end },
+    { 1.6, function() love.keypressed("up"); love.keypressed("return") end },
+    { 2.2, function(c) c.snap("deck") end },
+    { 2.3, function() love.keypressed("right") end },
+    { 2.8, function(c) c.snap("deck2") end },
+    { 2.9, function() love.keypressed("escape") end },
+    { 3.2, function(c) c.snap("back") end },
+    { 3.5, function(c) c.quit() end },
 }
 
+-- Card library from the home menu: grid, hover zoom, TRAPS tab, scrolled, closed.
 S.library = {
-    { 0.5, function() love.mousepressed(640, 538, 1) end },  -- CARD LIBRARY button (scenes/home.lua)
-    { 1.5, function(c) c.snap("grid") end },
-    { 2.0, function(c) c.quit() end },
+    { 0.5, function() click(center(require("ui.menu.home").buttonRect(2))) end },
+    { 1.2, function(c) c.snap("grid") end },
+    { 1.3, function() move(center(require("ui.menu.library").cellRect(2, 0))) end },
+    { 1.9, function(c) c.snap("hover") end },
+    { 2.0, function() click(center(require("ui.menu.library").tabRects()[6])) end },
+    { 2.5, function(c) c.snap("traps") end },
+    { 2.6, function() for _ = 1, 5 do love.keypressed("left") end end },   -- back to ALL
+    { 2.7, function() love.wheelmoved(0, -20) end },
+    { 3.2, function(c) c.snap("scrolled") end },
+    { 3.3, function() love.keypressed("escape") end },
+    { 3.6, function(c) c.snap("closed") end },
+    { 4.0, function(c) c.quit() end },
 }
 
 S.match = {
     { 0.3, function() math.randomseed(7) end },
-    { 0.5, function() love.keypressed("return") end },       -- start with the first deck
+    { 0.5, kickOff },   -- start with the first deck
     { 3.0, function(c) c.snap("start") end },
     { 9.0, function(c) c.snap("later") end },
     { 9.5, function(c) c.quit() end },
@@ -88,7 +118,7 @@ S.cards = {
 local picked = {}
 S.summon = {
     { 0.3,  function() math.randomseed(7) end },
-    { 0.5,  function() love.keypressed("return") end },
+    { 0.5,  kickOff },
     { 1.5,  function()
         picked.keeper = firstOf({ "keeper" })
         picked.field  = firstOf({ "striker", "defender", "midfielder" })
@@ -121,7 +151,7 @@ byTime(S.summon)
 -- (Setting opponent LP directly is harness-only; it just feeds the LP bar.)
 S.juice = {
     { 0.3,  function() math.randomseed(7) end },
-    { 0.5,  function() love.keypressed("return") end },
+    { 0.5,  kickOff },
     { 1.5,  function()
         store().match.players.opponent.lp = 3200
         require("scenes.match").onLPDamage("player", true)
@@ -154,7 +184,7 @@ S.juice = {
 -- Top-bar icons: log panel, AI hand (TAB), pause menu.
 S.debug = {
     { 0.3, function() math.randomseed(7) end },
-    { 0.5, function() love.keypressed("return") end },
+    { 0.5, kickOff },
     { 1.5, function() click(center(Layout.top.log)) end },
     { 2.0, function(c) c.snap("log") end },
     { 2.1, function() love.keypressed("l") end },

@@ -3,6 +3,7 @@ math.randomseed(os.time())
 
 local flux      = require("lib.flux")
 local Theme     = require("ui.theme")
+local Fonts     = require("ui.fonts")
 local Home      = require("scenes.home")
 local Match     = require("scenes.match")
 local Store     = require("store.match")
@@ -11,13 +12,14 @@ local Audio     = require("ui.audio")
 
 local currentScene = "home"
 local store        = Store.new()
-local fonts        = {}
 local camera       = { x = 0, y = 0 }
+local lastDeckKey  = nil        -- PLAY AGAIN restarts with the same deck
 Match._camera      = camera
 
 -- ── Helpers ───────────────────────────────────────────────────────────────────
 
 local function startMatch(deckKey)
+    lastDeckKey = deckKey
     local playerData   = Decks[deckKey]
     local opponentData = Decks.tikitaka
     store:startMatch(playerData.cards, opponentData.cards)
@@ -42,23 +44,36 @@ local function goHome()
     Audio.playMusic("assets/audio/music/theme_home.ogg", 0.40)
 end
 
+-- Home scene result: "start", deckKey | "quit" | nil
+local function onHome(action, deckKey)
+    if action == "start" then startMatch(deckKey)
+    elseif action == "quit" then love.event.quit() end
+end
+
+-- Match scene result: "home" | "restart" | nil
+local function onMatch(action)
+    if action == "home" then
+        goHome()
+    elseif action == "restart" then
+        if lastDeckKey then startMatch(lastDeckKey) else goHome() end
+    end
+end
+
 -- ── Love2D callbacks ──────────────────────────────────────────────────────────
 
 function love.load()
-    local Fonts = require("ui.fonts")
-    fonts.tiny   = Fonts.get(9)
-    fonts.small  = Fonts.get(11)
-    fonts.normal = Fonts.get(16)
-    fonts.large  = Fonts.get(22)
-    fonts.title  = Fonts.get(33)
-    love.graphics.setFont(fonts.normal)
+    love.graphics.setFont(Fonts.get(16))
     Audio.load()
     Audio.playMusic("assets/audio/music/theme_home.ogg", 0.40)
 end
 
 function love.update(dt)
     flux.update(dt)
-    if currentScene == "match" then Match.update(dt) end
+    if currentScene == "home" then
+        Home.update(dt)
+    elseif currentScene == "match" then
+        Match.update(dt)
+    end
 end
 
 function love.draw()
@@ -77,16 +92,19 @@ function love.mousepressed(x, y, button)
     local cx = x - math.floor(camera.x)
     local cy = y - math.floor(camera.y)
     if currentScene == "home" then
-        local action, deckKey = Home.mousepressed(cx, cy, button)
-        if action == "start" then startMatch(deckKey) end
+        onHome(Home.mousepressed(cx, cy, button))
     elseif currentScene == "match" then
-        if Match.mousepressed(cx, cy, button) == "home" then goHome() end
+        onMatch(Match.mousepressed(cx, cy, button))
     end
 end
 
 function love.mousemoved(x, y)
-    if currentScene == "match" then
-        Match.mousemoved(x - math.floor(camera.x), y - math.floor(camera.y))
+    local cx = x - math.floor(camera.x)
+    local cy = y - math.floor(camera.y)
+    if currentScene == "home" then
+        Home.mousemoved(cx, cy)
+    elseif currentScene == "match" then
+        Match.mousemoved(cx, cy)
     end
 end
 
@@ -97,10 +115,8 @@ end
 
 function love.keypressed(key)
     if currentScene == "home" then
-        local action, deckKey = Home.keypressed(key)
-        if action == "start" then startMatch(deckKey) end
+        onHome(Home.keypressed(key))
     elseif currentScene == "match" then
-        local action = Match.keypressed(key)
-        if action == "home" or action == "restart" then goHome() end
+        onMatch(Match.keypressed(key))
     end
 end
