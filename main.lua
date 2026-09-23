@@ -5,15 +5,12 @@ local flux      = require("lib.flux")
 local moonshine = require("lib.moonshine")
 local Home      = require("scenes.home")
 local Match     = require("scenes.match")
-local GwentMatch = require("scenes.gwent_match")
 local Store     = require("store.match")
-local GwentStore = require("store.gwent")
 local Decks     = require("data.presetDecks")
 local Audio     = require("ui.audio")
 
 local currentScene = "home"
 local store        = Store.new()
-local gwentStore   = GwentStore.new()
 local fonts        = {}
 local fxScene      = nil
 local camera       = { x = 0, y = 0 }
@@ -41,11 +38,9 @@ local function startMatch(deckKey)
     currentScene = "match"
 end
 
-local function startGwentMatch(playerFaction, opponentFaction)
-    gwentStore:startMatch(playerFaction, opponentFaction, "medium")
-    GwentMatch.enter(gwentStore, "medium")
-    Audio.playMusic("assets/audio/music/theme_match.ogg", 0.45)
-    currentScene = "gwent_match"
+local function goHome()
+    Home.reset(); currentScene = "home"
+    Audio.playMusic("assets/audio/music/theme_home.ogg", 0.40)
 end
 
 -- ── Love2D callbacks ──────────────────────────────────────────────────────────
@@ -68,11 +63,7 @@ end
 
 function love.update(dt)
     flux.update(dt)
-    if currentScene == "match" then
-        Match.update(dt)
-    elseif currentScene == "gwent_match" then
-        GwentMatch.update(dt)
-    end
+    if currentScene == "match" then Match.update(dt) end
 end
 
 function love.draw()
@@ -84,8 +75,6 @@ function love.draw()
             Home.draw()
         elseif currentScene == "match" then
             Match.draw()
-        elseif currentScene == "gwent_match" then
-            GwentMatch.draw()
         end
     end)
     love.graphics.pop()
@@ -95,28 +84,10 @@ function love.mousepressed(x, y, button)
     local cx = x - math.floor(camera.x)
     local cy = y - math.floor(camera.y)
     if currentScene == "home" then
-        local action, mode, key = Home.mousepressed(cx, cy, button)
-        if action == "start" then
-            if mode == "gwent" then
-                -- Opponent always uses the other faction
-                local oppFaction = key == "northern_realms" and "monsters" or "northern_realms"
-                startGwentMatch(key, oppFaction)
-            else
-                startMatch(key)
-            end
-        end
+        local action, deckKey = Home.mousepressed(cx, cy, button)
+        if action == "start" then startMatch(deckKey) end
     elseif currentScene == "match" then
-        local action = Match.mousepressed(cx, cy, button)
-        if action == "home" then
-            Home.reset(); currentScene = "home"
-            Audio.playMusic("assets/audio/music/theme_home.ogg", 0.40)
-        end
-    elseif currentScene == "gwent_match" then
-        local action = GwentMatch.mousepressed(cx, cy, button)
-        if action == "home" then
-            Home.reset(); currentScene = "home"
-            Audio.playMusic("assets/audio/music/theme_home.ogg", 0.40)
-        end
+        if Match.mousepressed(cx, cy, button) == "home" then goHome() end
     end
 end
 
@@ -128,32 +99,15 @@ end
 
 function love.wheelmoved(x, y)
     if currentScene == "home" then Home.wheelmoved(x, y)
-    elseif currentScene == "match" then Match.wheelmoved(x, y)
-    elseif currentScene == "gwent_match" then GwentMatch.wheelmoved(x, y) end
+    elseif currentScene == "match" then Match.wheelmoved(x, y) end
 end
 
 function love.keypressed(key)
     if currentScene == "home" then
-        local action, mode, deckKey = Home.keypressed(key)
-        if action == "start" then
-            if mode == "gwent" then
-                local oppFaction = deckKey == "northern_realms" and "monsters" or "northern_realms"
-                startGwentMatch(deckKey, oppFaction)
-            else
-                startMatch(deckKey)
-            end
-        end
+        local action, deckKey = Home.keypressed(key)
+        if action == "start" then startMatch(deckKey) end
     elseif currentScene == "match" then
         local action = Match.keypressed(key)
-        if action == "home" or action == "restart" then
-            Home.reset(); currentScene = "home"
-            Audio.playMusic("assets/audio/music/theme_home.ogg", 0.40)
-        end
-    elseif currentScene == "gwent_match" then
-        local action = GwentMatch.keypressed(key)
-        if action == "home" then
-            Home.reset(); currentScene = "home"
-            Audio.playMusic("assets/audio/music/theme_home.ogg", 0.40)
-        end
+        if action == "home" or action == "restart" then goHome() end
     end
 end

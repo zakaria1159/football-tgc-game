@@ -5,9 +5,6 @@ local Home = {}
 
 local libraryOpen = false
 
--- Two-step flow: pick mode → pick deck (→ difficulty is always "medium" for now)
-local step         = "mode"   -- "mode" | "deck"
-local selectedMode = "classic"
 local selectedDeck = 1
 
 local deckList = {
@@ -16,23 +13,13 @@ local deckList = {
     { key = "catenaccio", label = "THE WALL",           sub = "Catenaccio",  desc = "Defensive fortress" },
 }
 
-local gwentDeckList = {
-    { key = "northern_realms", label = "THE LIONS",  sub = "Northern Realms", desc = "Heroes, spies & bond combos" },
-    { key = "monsters",        label = "THE WILDS",  sub = "Monsters",        desc = "Muster swarms & weather" },
-}
-
 local deckColors = {
-    tikitaka     = { 0.08, 0.42, 0.22, 1 },
-    longball     = { 0.62, 0.10, 0.14, 1 },
-    catenaccio   = { 0.10, 0.28, 0.62, 1 },
-    northern_realms = { 0.10, 0.28, 0.62, 1 },
-    monsters        = { 0.42, 0.08, 0.08, 1 },
+    tikitaka   = { 0.08, 0.42, 0.22, 1 },
+    longball   = { 0.62, 0.10, 0.14, 1 },
+    catenaccio = { 0.10, 0.28, 0.62, 1 },
 }
 
 -- Shared layout constants — used by both draw and hit-detection to prevent drift
-local MODE_BTN_W = 260
-local MODE_BTN_H = 100
-local MODE_GAP   = 40
 local DECK_W     = 280
 local DECK_H     = 180
 local DECK_GAP   = 30
@@ -148,93 +135,36 @@ function Home.draw()
     drawBackground()
     drawTitle()
 
-    if step == "mode" then
-        Fonts.with(11, function()
-            love.graphics.setColor(0.50, 0.45, 0.45, 1)
-            love.graphics.printf("CHOOSE MODE", 0, H * 0.20, W, "center")
-        end)
+    Fonts.with(11, function()
+        love.graphics.setColor(0.50, 0.45, 0.45, 1)
+        love.graphics.printf("CHOOSE YOUR FORMATION", 0, H * 0.20, W, "center")
+    end)
 
-        -- Two mode buttons
-        local totalW = 2 * MODE_BTN_W + MODE_GAP
-        local startX = (W - totalW) / 2
-        local btnY   = H * 0.32
+    drawDeckButtons(deckList, selectedDeck, H * 0.30)
 
-        local modes = {
-            { key = "classic", label = "CLASSIC MODE",  sub = "ATK vs DEF combat" },
-            { key = "gwent",   label = "GWENT MODE",    sub = "Power & scoring" },
-        }
-        for i, m in ipairs(modes) do
-            local bx  = startX + (i-1) * (MODE_BTN_W + MODE_GAP)
-            local sel = selectedMode == m.key
-            local col = { 0.50, 0.12, 0.12, 1 }
-            if m.key == "gwent" then col = { 0.12, 0.40, 0.22, 1 } end
+    -- Card Library button
+    local libBtnW = 220
+    local libBtnH = 36
+    local libBtnX = (W - libBtnW) / 2
+    local libBtnY = H * 0.65
+    local mx, my  = love.mouse.getPosition()
+    local hov = mx >= libBtnX and mx <= libBtnX + libBtnW
+            and my >= libBtnY and my <= libBtnY + libBtnH
+    love.graphics.setColor(hov and 0.18 or 0.10, hov and 0.12 or 0.07, hov and 0.30 or 0.18, 1)
+    love.graphics.rectangle("fill", libBtnX, libBtnY, libBtnW, libBtnH, 5)
+    love.graphics.setColor(0.50, 0.38, 0.78, hov and 0.90 or 0.55)
+    love.graphics.setLineWidth(1.5)
+    love.graphics.rectangle("line", libBtnX, libBtnY, libBtnW, libBtnH, 5)
+    love.graphics.setLineWidth(1)
+    Fonts.with(11, function()
+        love.graphics.setColor(hov and 1.0 or 0.70, hov and 0.92 or 0.62, hov and 1.0 or 0.88, 1)
+        love.graphics.printf("CARD LIBRARY", libBtnX, libBtnY + libBtnH/2 - 7, libBtnW, "center")
+    end)
 
-            love.graphics.setColor(0, 0, 0, 0.55)
-            love.graphics.rectangle("fill", bx+4, btnY+4, MODE_BTN_W, MODE_BTN_H, 8)
-            love.graphics.setColor(col[1]*(sel and 0.55 or 0.25), col[2]*(sel and 0.55 or 0.25), col[3]*(sel and 0.55 or 0.25), 1)
-            love.graphics.rectangle("fill", bx, btnY, MODE_BTN_W, MODE_BTN_H, 8)
-
-            if sel then
-                love.graphics.setColor(col[1], col[2], col[3], 1)
-                love.graphics.setLineWidth(2.5)
-            else
-                love.graphics.setColor(col[1]*0.6, col[2]*0.6, col[3]*0.6, 0.7)
-                love.graphics.setLineWidth(1.5)
-            end
-            love.graphics.rectangle("line", bx, btnY, MODE_BTN_W, MODE_BTN_H, 8)
-            love.graphics.setLineWidth(1)
-
-            Fonts.with(16, function()
-                love.graphics.setColor(sel and {1,1,1,1} or {0.65,0.65,0.65,1})
-                love.graphics.printf(m.label, bx, btnY + 22, MODE_BTN_W, "center")
-            end)
-            Fonts.with(10, function()
-                love.graphics.setColor(sel and {0.75,0.85,0.78,1} or {0.45,0.45,0.45,1})
-                love.graphics.printf(m.sub, bx, btnY + 50, MODE_BTN_W, "center")
-            end)
-        end
-
-        Fonts.with(11, function()
-            love.graphics.setColor(0.45, 0.42, 0.44, 1)
-            love.graphics.printf("Arrow keys or click to select     ENTER to continue", 0, H * 0.72, W, "center")
-        end)
-
-    else  -- step == "deck"
-        local list  = selectedMode == "gwent" and gwentDeckList or deckList
-        local label = selectedMode == "gwent" and "CHOOSE FACTION" or "CHOOSE YOUR FORMATION"
-        Fonts.with(11, function()
-            love.graphics.setColor(0.50, 0.45, 0.45, 1)
-            love.graphics.printf(label, 0, H * 0.20, W, "center")
-        end)
-
-        drawDeckButtons(list, selectedDeck, H * 0.30)
-
-        -- Card Library button (classic mode only)
-        if selectedMode == "classic" then
-            local libBtnW = 220
-            local libBtnH = 36
-            local libBtnX = (W - libBtnW) / 2
-            local libBtnY = H * 0.65
-            local mx, my  = love.mouse.getPosition()
-            local hov = mx >= libBtnX and mx <= libBtnX + libBtnW
-                    and my >= libBtnY and my <= libBtnY + libBtnH
-            love.graphics.setColor(hov and 0.18 or 0.10, hov and 0.12 or 0.07, hov and 0.30 or 0.18, 1)
-            love.graphics.rectangle("fill", libBtnX, libBtnY, libBtnW, libBtnH, 5)
-            love.graphics.setColor(0.50, 0.38, 0.78, hov and 0.90 or 0.55)
-            love.graphics.setLineWidth(1.5)
-            love.graphics.rectangle("line", libBtnX, libBtnY, libBtnW, libBtnH, 5)
-            love.graphics.setLineWidth(1)
-            Fonts.with(11, function()
-                love.graphics.setColor(hov and 1.0 or 0.70, hov and 0.92 or 0.62, hov and 1.0 or 0.88, 1)
-                love.graphics.printf("CARD LIBRARY", libBtnX, libBtnY + libBtnH/2 - 7, libBtnW, "center")
-            end)
-        end
-
-        Fonts.with(11, function()
-            love.graphics.setColor(0.45, 0.42, 0.44, 1)
-            love.graphics.printf("Arrow keys or click to select     ENTER to start     ESC to go back", 0, H * 0.72, W, "center")
-        end)
-    end
+    Fonts.with(11, function()
+        love.graphics.setColor(0.45, 0.42, 0.44, 1)
+        love.graphics.printf("Arrow keys or click to select     ENTER to start     ESC to quit", 0, H * 0.72, W, "center")
+    end)
 
     Fonts.with(9, function()
         love.graphics.setColor(0.28, 0.26, 0.28, 1)
@@ -254,29 +184,14 @@ function Home.keypressed(key)
         return nil
     end
 
-    local list = selectedMode == "gwent" and gwentDeckList or deckList
-
-    if step == "mode" then
-        if key == "left" or key == "right" then
-            selectedMode = selectedMode == "classic" and "gwent" or "classic"
-            selectedDeck = 1
-        elseif key == "return" or key == "kpenter" then
-            selectedDeck = math.min(selectedDeck, #list)
-            step = "deck"
-        elseif key == "escape" then
-            love.event.quit()
-        end
-
-    else  -- deck step
-        if key == "left" then
-            selectedDeck = math.max(1, selectedDeck - 1)
-        elseif key == "right" then
-            selectedDeck = math.min(#list, selectedDeck + 1)
-        elseif key == "return" or key == "kpenter" then
-            return "start", selectedMode, list[selectedDeck].key
-        elseif key == "escape" then
-            step = "mode"
-        end
+    if key == "left" then
+        selectedDeck = math.max(1, selectedDeck - 1)
+    elseif key == "right" then
+        selectedDeck = math.min(#deckList, selectedDeck + 1)
+    elseif key == "return" or key == "kpenter" then
+        return "start", deckList[selectedDeck].key
+    elseif key == "escape" then
+        love.event.quit()
     end
     return nil
 end
@@ -292,51 +207,25 @@ function Home.mousepressed(x, y, button)
     local W = love.graphics.getWidth()
     local H = love.graphics.getHeight()
 
-    if step == "mode" then
-        local totalW = 2 * MODE_BTN_W + MODE_GAP
-        local startX = (W - totalW) / 2
-        local btnY   = H * 0.32
-        local modeKeys = {"classic", "gwent"}
-        for i, mk in ipairs(modeKeys) do
-            local bx = startX + (i-1) * (MODE_BTN_W + MODE_GAP)
-            if x >= bx and x <= bx + MODE_BTN_W and y >= btnY and y <= btnY + MODE_BTN_H then
-                if selectedMode == mk then
-                    step = "deck"; selectedDeck = 1
-                else
-                    selectedMode = mk; selectedDeck = 1
-                end
-                return nil
-            end
+    local totalW = #deckList * DECK_W + (#deckList - 1) * DECK_GAP
+    local startX = (W - totalW) / 2
+    local cardY  = H * 0.30
+    for i, deck in ipairs(deckList) do
+        local cx = startX + (i-1) * (DECK_W + DECK_GAP)
+        if x >= cx and x <= cx + DECK_W and y >= cardY and y <= cardY + DECK_H then
+            if selectedDeck == i then return "start", deck.key end
+            selectedDeck = i
+            return nil
         end
-    else
-        local list   = selectedMode == "gwent" and gwentDeckList or deckList
-        local totalW = #list * DECK_W + (#list - 1) * DECK_GAP
-        local startX = (W - totalW) / 2
-        local cardY  = H * 0.30
-        for i, _ in ipairs(list) do
-            local cx = startX + (i-1) * (DECK_W + DECK_GAP)
-            if x >= cx and x <= cx + DECK_W and y >= cardY and y <= cardY + DECK_H then
-                if selectedDeck == i then
-                    return "start", selectedMode, list[i].key
-                else
-                    selectedDeck = i
-                end
-                return nil
-            end
-        end
+    end
 
-        -- Card Library button (classic mode only)
-        if selectedMode == "classic" then
-            local libBtnW = 220
-            local libBtnH = 36
-            local libBtnX = (W - libBtnW) / 2
-            local libBtnY = H * 0.65
-            if x >= libBtnX and x <= libBtnX + libBtnW and y >= libBtnY and y <= libBtnY + libBtnH then
-                libraryOpen = true
-                CardLibrary.open()
-                return nil
-            end
-        end
+    local libBtnW = 220
+    local libBtnH = 36
+    local libBtnX = (W - libBtnW) / 2
+    local libBtnY = H * 0.65
+    if x >= libBtnX and x <= libBtnX + libBtnW and y >= libBtnY and y <= libBtnY + libBtnH then
+        libraryOpen = true
+        CardLibrary.open()
     end
     return nil
 end
@@ -346,8 +235,6 @@ function Home.wheelmoved(x, y)
 end
 
 function Home.reset()
-    step         = "mode"
-    selectedMode = "classic"
     selectedDeck = 1
     libraryOpen  = false
 end
