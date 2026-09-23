@@ -45,6 +45,11 @@ T.test("mouse above the hand area does not magnify", function()
     for i = 1, 5 do T.near(c[i].scale, 1) end
 end)
 
+T.test("mouse far outside the area's horizontal range does not magnify", function()
+    local c = HandFan.layout(8, AREA, AREA.x - HandFan.RADIUS - 1, 700)
+    for i = 1, 8 do T.near(c[i].scale, 1) end
+end)
+
 T.test("hit finds the rotated card under the point", function()
     local c, order = HandFan.layout(5, AREA)
     local px = c[1].cx + (H / 2) * math.sin(c[1].angle)

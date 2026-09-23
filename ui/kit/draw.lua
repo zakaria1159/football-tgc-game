@@ -148,6 +148,16 @@ function Draw.roundedImage(image, x, y, w, h, r, alphaMul)
     roundedMesh(x, y, w, h, r, { 1, 1, 1, 1 }, { 1, 1, 1, 1 }, "v", image)
 end
 
+-- True when the fill (flat color or gradient) has any alpha < 1, so a full-rect
+-- border drawn under it would show through as a muddy overlap instead of a crisp edge.
+local function isTranslucentFill(fill)
+    if not fill then return false end
+    if isGradient(fill) then
+        return (fill[1][4] or 1) < 1 or (fill[2][4] or 1) < 1
+    end
+    return (fill[4] or 1) < 1
+end
+
 -- ── Sticker (the core arcade shape) ───────────────────────────────────────────
 -- opts: r, fill (color|gradient), dir, border (px), borderColor, shadow (px), shadowColor, alpha
 function Draw.sticker(x, y, w, h, opts)
@@ -160,12 +170,19 @@ function Draw.sticker(x, y, w, h, opts)
         Draw.setColor(opts.shadowColor or Theme.ink, a)
         love.graphics.rectangle("fill", x, y + sh, w, h, r, r, 8)
     end
-    if b > 0 then
+    local translucent = b > 0 and isTranslucentFill(opts.fill)
+    if b > 0 and not translucent then
         Draw.setColor(opts.borderColor or Theme.white, a)
         love.graphics.rectangle("fill", x, y, w, h, r, r, 8)
     end
     Draw.roundedFill(x + b, y + b, w - 2 * b, h - 2 * b, math.max(0, r - b),
         opts.fill or Theme.white, opts.dir, a)
+    if translucent then
+        Draw.setColor(opts.borderColor or Theme.white, a)
+        love.graphics.setLineWidth(b)
+        love.graphics.rectangle("line", x + b / 2, y + b / 2, w - b, h - b, r - b / 2, r - b / 2, 8)
+        love.graphics.setLineWidth(1)
+    end
 end
 
 -- Glow rings around a rounded rect (selection, rarity, targets).

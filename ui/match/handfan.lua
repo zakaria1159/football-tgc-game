@@ -28,6 +28,7 @@ function HandFan.layout(n, area, hoverX, hoverY, selectedIndex)
     end
     local mid = (n + 1) / 2
     local hovering = hoverX ~= nil and hoverY ~= nil and hoverY >= area.y
+        and hoverX >= area.x - HandFan.RADIUS and hoverX <= area.x + area.w + HandFan.RADIUS
     local hot, hotT = nil, 0
 
     for i = 1, n do

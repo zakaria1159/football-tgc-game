@@ -1,8 +1,9 @@
 -- Card zoom: zoom-size card + info sticker beside the hovered card, clamped on screen.
 -- Zoom.place / Zoom.statusLines are pure (unit-tested); Zoom.draw uses LÖVE.
-local Theme = require("ui.theme")
-local Draw  = require("ui.kit.draw")
-local Card  = require("ui.card")
+local Theme  = require("ui.theme")
+local Draw   = require("ui.kit.draw")
+local Card   = require("ui.card")
+local Layout = require("ui.match.layout")
 
 local Zoom = {}
 Zoom.W, Zoom.H    = 300, 410   -- Theme.cardSize.zoom
@@ -77,7 +78,7 @@ function Zoom.draw(z)
     local lines = Zoom.statusLines(z.cardDef, z.pitched, z.pitch)
     local baseH = Card.infoHeight(z.cardDef, Zoom.INFO_W)
     local infoH = Zoom.infoHeight(z.cardDef, lines)
-    local p = Zoom.place(z.src, infoH, love.graphics.getWidth(), love.graphics.getHeight())
+    local p = Zoom.place(z.src, infoH, Layout.W, Layout.H)
     local s = z.scale or 1
     local ox, oy = p.cardX + Zoom.W / 2, p.cardY + Zoom.H / 2
 

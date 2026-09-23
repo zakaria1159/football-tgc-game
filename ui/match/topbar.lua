@@ -142,8 +142,8 @@ function TopBar.draw(match)
     avatarFrame(T.oppAvatar, Theme.grad.lpOpp[2])
     Icons.draw("soccer-kick", T.oppAvatar.cx, T.oppAvatar.cy, T.oppAvatar.r * 1.3, Theme.white)
 
-    LPBar.draw(bars.player,   T.youBar, Theme.grad.lpYou, "YOU · " .. bars.player.shown, false)
-    LPBar.draw(bars.opponent, T.oppBar, Theme.grad.lpOpp, "OPP · " .. bars.opponent.shown, true)
+    LPBar.draw(bars.player,   T.youBar, Theme.grad.lpYou, "YOU · " .. math.max(0, bars.player.shown), false)
+    LPBar.draw(bars.opponent, T.oppBar, Theme.grad.lpOpp, "OPP · " .. math.max(0, bars.opponent.shown), true)
     pips(T.youPips, p.halvesWon or 0, false)
     pips(T.oppPips, o.halvesWon or 0, true)
     Draw.pill(T.oppDeck.x, T.oppDeck.y, T.oppDeck.w, T.oppDeck.h, "DECK " .. #o.deck, {

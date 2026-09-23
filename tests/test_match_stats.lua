@@ -12,8 +12,15 @@ local function match(pMid, oMid)
 end
 
 T.test("crown goes to the midfielder with more power", function()
-    T.eq(Stats.crownOwner(match(mid("attack", 1500, 800), mid("defense", 700, 1200))), "player")
-    T.eq(Stats.crownOwner(match(mid("attack", 1000, 800), mid("defense", 700, 1200))), "opponent")
+    T.eq(Stats.crownOwner(match(mid("attack", 1500, 800), mid("attack", 1200, 700))), "player")
+    T.eq(Stats.crownOwner(match(mid("attack", 1000, 800), mid("attack", 1200, 700))), "opponent")
+end)
+
+T.test("opponent's face-down midfielder hides the crown (unknown), even if it would win or lose", function()
+    T.eq(Stats.crownOwner(match(mid("attack", 1000, 800), mid("defense", 700, 1200))), nil, "would win")
+    T.eq(Stats.crownOwner(match(mid("attack", 1500, 800), mid("defense", 700, 100))), nil, "would lose")
+    -- the player's own face-down midfielder still counts — they know their own card
+    T.eq(Stats.crownOwner(match(mid("defense", 700, 1200), mid("attack", 1000, 800))), "player")
 end)
 
 T.test("no crown on a tie or without real midfielders", function()
