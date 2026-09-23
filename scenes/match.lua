@@ -20,6 +20,8 @@ local TopBar        = require("ui.match.topbar")
 local BottomBar     = require("ui.match.bottombar")
 local Toasts        = require("ui.match.toasts")
 local Banner        = require("ui.match.banner")
+local Hover         = require("ui.match.hover")
+local Zoom          = require("ui.match.zoom")
 
 local Match = {}
 
@@ -90,6 +92,11 @@ local goalParticles = nil
 local toasts = Toasts.new()
 local banner = Banner.new()
 
+-- Card zoom (hover any card ~0.3s)
+local hover    = Hover.new()
+local zoomKey  = nil
+local zoomAnim = { scale = 1 }
+
 -- Debug log panel
 local debugLogOpen   = false
 local debugLogScroll = 0  -- lines scrolled from bottom
@@ -134,6 +141,8 @@ function Match.enter(matchStore, difficulty)
     handMouseX, handMouseY = nil, nil
     toasts              = Toasts.new()
     banner              = Banner.new()
+    hover               = Hover.new()
+    zoomKey             = nil
     Character.reset()
     TopBar.reset(store.match)
     BottomBar.reset()
@@ -171,6 +180,17 @@ function Match.update(dt)
     banner:update(dt)
     TopBar.update(dt, match, mouseX, mouseY)
     BottomBar.update(dt, match, mouseX, mouseY)
+
+    local hKey, hPayload = Match.hoverTarget(match)
+    if hover:update(dt, hKey, hPayload) then
+        if zoomKey ~= hKey then
+            zoomKey = hKey
+            zoomAnim.scale = 0.85
+            flux.to(zoomAnim, 0.18, { scale = 1 }):ease("backout")
+        end
+    else
+        zoomKey = nil
+    end
 
     -- Scan new log entries for notable events
     local log = match.log or {}
@@ -371,6 +391,12 @@ function Match.draw()
         }, fc.x, fc.y, { w = fc.w, h = fc.h })
     end
 
+    -- Card zoom
+    if zoomKey and hover.payload then
+        local p = hover.payload
+        Zoom.draw({ cardDef = p.cardDef, pitched = p.pitched, pitch = p.pitch, src = p.src, scale = zoomAnim.scale })
+    end
+
     -- Flash banner
     banner:draw()
 
@@ -433,6 +459,34 @@ function Match.draw()
     -- Pause menu / card library (always on top of everything)
     if libraryOpen then CardLibrary.draw() end
     if pauseOpen and not libraryOpen then PauseMenu.draw() end
+end
+
+-- Key + payload for the card under the mouse (nil when nothing zoomable).
+-- Opponent face-down cards and traps are never zoomable (hidden information).
+function Match.hoverTarget(match)
+    if activeCombat or activeTrapActiv or scoutReveal or pauseOpen or libraryOpen or debugLogOpen
+       or match.winner or store.coverWindow or store.trapWindow then
+        return nil
+    end
+    local def, i, r = Hand.hit(handHit, mouseX, mouseY)
+    if def then
+        return "hand:" .. i .. ":" .. tostring(def.id), { cardDef = def, src = r }
+    end
+    for k = #pitchHitboxes, 1, -1 do
+        local s = pitchHitboxes[k]
+        if Match.inRect(mouseX, mouseY, s) then
+            local pitch = match.players[s.owner].pitch
+            local card
+            if s.slotType == "trap" then card = pitch.traps[s.slotIndex]
+            else card = Match.getCardInSlot(pitch, s) end
+            if card and not (s.owner == "opponent" and card.mode == "defense") then
+                return Pitch.slotKey(s.owner, s.slotType, s.slotIndex) .. ":" .. tostring(card.definition.id),
+                    { cardDef = card.definition, pitched = card, pitch = pitch, src = s }
+            end
+            return nil
+        end
+    end
+    return nil
 end
 
 -- One-line instruction shown between the pitch and the hand.
