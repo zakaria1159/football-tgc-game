@@ -565,6 +565,7 @@ function Phases._goalAttempt(matchState, striker, keeper, attackerSlot, opponent
         State.log(matchState, T.EventType.SHOT, { outcome = "tie", margin = 0 })
 
     else  -- save
+        keeper.saves = (keeper.saves or 0) + 1   -- Safe hands
         State.log(matchState, T.EventType.SHOT,
             { outcome = "save", margin = result.margin })
     end

@@ -38,21 +38,36 @@ function Combat.defendStat(defender, slotType, ownPitch, covering, visibleOnly)
 end
 
 -- Keeper DEF against a shot, with its keyword parts.
---   Effective DEF = base DEF + 300 × active defender-slot cards + 150 × an active
---   midfielder-slot card (any card, either mode). penaltyMode: base DEF only.
+--   Effective DEF = base DEF + Safe hands + line bonus: each active defender-slot card
+--   +300 (Bolt +500), an active midfielder-slot card +150 (any card, either mode).
+--   penaltyMode: base DEF + Safe hands only, unless the keeper has Fortress (full DEF).
 --   Active = has not attacked since the start of its owner's latest turn.
+--   visibleOnly: a face-down, unrevealed Bolt card counts as a plain +300.
 -- Returns total, parts.
 function Combat.keeperDef(keeper, pitch, penaltyMode, visibleOnly)
-    local base = Combat.getStat(keeper, "defend")
-    if penaltyMode then return base, {} end
-    local bonus = 0
+    local parts = {}
+    local own, ownPart = Resolver.keeperOwnBonus(keeper)
+    if ownPart then parts[#parts + 1] = ownPart end
+    local base = Combat.getStat(keeper, "defend") + own
+
+    local line, lineParts = 0, {}
     for i = 1, C.PITCH.MAX_DEFENDERS do
         local c = pitch and pitch.defenders and pitch.defenders[i]
-        if c and not c.usedAsAttacker then bonus = bonus + C.COMBAT.DEFENDER_BONUS end
+        if c and not c.usedAsAttacker then
+            local b, p = Resolver.keeperLineBonus(c, visibleOnly)
+            line = line + b
+            if p then lineParts[#lineParts + 1] = p end
+        end
     end
     local mid = pitch and pitch.midfielder
-    if mid and not mid.usedAsAttacker then bonus = bonus + C.COMBAT.MIDFIELDER_BONUS end
-    return base + bonus, {}
+    if mid and not mid.usedAsAttacker then line = line + C.COMBAT.MIDFIELDER_BONUS end
+
+    if penaltyMode then
+        if not Resolver.penaltyFullDef(keeper) then return base, parts end
+        parts[#parts + 1] = Resolver.part(line, keeper, "FORTRESS")
+    end
+    for _, p in ipairs(lineParts) do parts[#parts + 1] = p end
+    return base + line, parts
 end
 
 -- Keeper effective DEF as a number (see Combat.keeperDef).

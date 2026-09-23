@@ -136,6 +136,8 @@ end
 --   ctx = { slotType, ownPitch, oppPitch, shot, keeper, visibleOnly }
 --   striker slot: the midfielder card bonus (R.midfieldAtkBonus) and Link-up (+150 from
 --   each other Link-up card on the attacker's pitch, any slot).
+--   shots (any slot, strategy shots included): Instinct (+300 while the keeper is
+--   exhausted) and Opportunist (+400 while an enemy defender slot is empty).
 -- Returns total, parts (keyword parts only).
 function R.atkBonus(pitched, ctx)
     local total, parts = 0, {}
@@ -150,6 +152,14 @@ function R.atkBonus(pitched, ctx)
             if c ~= pitched and R.has(c, "LINK_UP") and not (ctx.visibleOnly and R.hidden(c)) then
                 add(A.LINK_UP_ATK, R.part(A.LINK_UP_ATK, c, "LINK_UP"))
             end
+        end
+    end
+    if ctx.shot then
+        if R.has(pitched, "INSTINCT") and ctx.keeper and ctx.keeper.exhausted then
+            add(A.INSTINCT_ATK, R.part(A.INSTINCT_ATK, pitched, "INSTINCT"))
+        end
+        if R.has(pitched, "OPPORTUNIST") and R.hasEmptyDefenderSlot(ctx.oppPitch) then
+            add(A.OPPORTUNIST_ATK, R.part(A.OPPORTUNIST_ATK, pitched, "OPPORTUNIST"))
         end
     end
     return total, parts
@@ -180,6 +190,40 @@ function R.defBonus(pitched, ctx)
         add(A.COUNTER_PRESS_DEF, R.part(A.COUNTER_PRESS_DEF, pitched, "COUNTER_PRESS"))
     end
     return total, parts
+end
+
+-- True when at least one defender slot of the pitch is empty.
+function R.hasEmptyDefenderSlot(pitch)
+    if not pitch then return false end
+    for i = 1, C.PITCH.MAX_DEFENDERS do
+        if not (pitch.defenders and pitch.defenders[i]) then return true end
+    end
+    return false
+end
+
+-- Keeper line bonus of one active card in the defender slots: Bolt +500, else +300.
+-- visibleOnly: a face-down, unrevealed Bolt card counts as a plain +300.
+-- Returns amount, part.
+function R.keeperLineBonus(pitched, visibleOnly)
+    if R.has(pitched, "BOLT") and not (visibleOnly and R.hidden(pitched)) then
+        return A.BOLT_LINE, R.part(A.BOLT_LINE, pitched, "BOLT")
+    end
+    return C.COMBAT.DEFENDER_BONUS, nil
+end
+
+-- Safe hands: +100 DEF for each save this keeper made this half (max +300). The keeper's
+-- own DEF, so it also counts against a Penalty. pitched.saves counts saves
+-- (engine/phases.lua _goalAttempt); a new half means a new pitch. Returns amount, part.
+function R.keeperOwnBonus(keeper)
+    if not R.has(keeper, "SAFE_HANDS") then return 0, nil end
+    local n = math.min(A.SAFE_HANDS_MAX, A.SAFE_HANDS_PER_SAVE * (keeper.saves or 0))
+    if n <= 0 then return 0, nil end
+    return n, R.part(n, keeper, "SAFE_HANDS")
+end
+
+-- Fortress: penalties face this keeper's full effective DEF.
+function R.penaltyFullDef(keeper)
+    return R.has(keeper, "FORTRESS")
 end
 
 return R
