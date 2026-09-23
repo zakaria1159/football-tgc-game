@@ -64,7 +64,7 @@ function Combat.keeperDef(keeper, pitch, penaltyMode, visibleOnly)
 
     if penaltyMode then
         if not Resolver.penaltyFullDef(keeper) then return base, parts end
-        parts[#parts + 1] = Resolver.part(line, keeper, "FORTRESS")
+        if line > 0 then parts[#parts + 1] = Resolver.part(line, keeper, "FORTRESS") end
     end
     for _, p in ipairs(lineParts) do parts[#parts + 1] = p end
     return base + line, parts
