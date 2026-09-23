@@ -1,0 +1,22 @@
+local T      = require("tests.t")
+local Banner = require("ui.match.banner")
+
+T.test("pose slides in from the left, holds, slides out right", function()
+    local dx, a = Banner.pose(0);           T.near(dx, -Banner.SLIDE); T.near(a, 1)
+    dx, a = Banner.pose(Banner.IN);         T.near(dx, 0);             T.near(a, 1)
+    dx, a = Banner.pose(Banner.total());    T.near(dx, Banner.SLIDE, 1e-3); T.near(a, 0, 1e-6)
+end)
+
+T.test("a banner disappears after its total time", function()
+    local b = Banner.new()
+    b:show("X", "good")
+    b:update(1.0); T.eq(b.text, "X")
+    b:update(2.0); T.eq(b.text, nil)
+end)
+
+T.test("show restarts a running banner", function()
+    local b = Banner.new()
+    b:show("A"); b:update(1.0)
+    b:show("B", "bad")
+    T.eq(b.text, "B"); T.eq(b.kind, "bad"); T.near(b.t, 0)
+end)
