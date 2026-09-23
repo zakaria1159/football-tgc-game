@@ -97,6 +97,7 @@ local debugLogScroll = 0  -- lines scrolled from bottom
 
 -- AI state machine
 local aiPlan        = nil
+local aiPlanTag     = nil   -- AI.planTag of the turn aiPlan was made for
 local aiActionIndex = 0
 local aiTimer       = 0
 local AI_STEP_DELAY = 0.55
@@ -128,6 +129,7 @@ function Match.enter(matchStore, difficulty)
     promptWindow        = nil
     handHit             = { cards = {}, order = {}, defs = {} }
     aiPlan              = nil
+    aiPlanTag           = nil
     aiActionIndex       = 0
     aiTimer             = 0
     debugLogOpen        = false
@@ -281,8 +283,12 @@ function Match.update(dt)
     end
 
     if match.activePlayer == "opponent" then
+        -- A plan left over from the previous half (the AI won it mid-turn) is dropped, so
+        -- the AI draws and summons on its first turn of the new half.
+        if aiPlan and aiPlanTag ~= AI.planTag(match) then aiPlan = nil end
         if not aiPlan then
             aiPlan        = AI.planTurn()
+            aiPlanTag     = AI.planTag(match)
             aiActionIndex = 1
             aiTimer       = AI_STEP_DELAY
         end

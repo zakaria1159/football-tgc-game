@@ -2,6 +2,7 @@ local State  = require("engine.state")
 local Phases = require("engine.phases")
 local Combat = require("engine.combat")
 local C      = require("engine.constants")
+local AI     = require("ai.opponent")
 
 local Store = {}
 Store.__index = Store
@@ -150,7 +151,7 @@ function Store:declareAttack(attackerSlot, defenderSlot)
     -- When player attacks with striker: AI OFFSIDE auto-fires (or player can counter with MC)
     if activeId == "player" and attackerSlot.type == "striker" then
         local aiOffside, aiOffsideIdx = self:_findTrap(match.players.opponent.pitch, "OFFSIDE")
-        if aiOffside then
+        if aiOffside and AI.wantsOffside(match, "opponent", attackerSlot, defenderSlot) then
             local mcTrap, mcIdx = self:_findTrap(match.players.player.pitch, "MANAGERS_CHALLENGE")
             if mcTrap then
                 -- Player can counter AI's OFFSIDE with MC
@@ -270,7 +271,7 @@ function Store:_afterCombatTraps(snap, result, attackerSlot)
     -- Player won a fight (not a tie): AI RED_CARD; the player may counter with VAR or MC
     if outcome == "defender_destroyed" then
         local aiRedCard, aiRedIdx = self:_findTrap(match.players.opponent.pitch, "RED_CARD")
-        if aiRedCard then
+        if aiRedCard and AI.wantsRedCard(snap.attacker and snap.attacker.atk or 0) then
             local counters = {}
             local varTrap, varIdx = self:_findTrap(match.players.player.pitch, "VAR")
             local mcTrap,  mcIdx  = self:_findTrap(match.players.player.pitch, "MANAGERS_CHALLENGE")

@@ -73,6 +73,8 @@ end)
 T.test("revealed: the AI reads a revealed card's DEF instead of guessing", function()
     local m = H.match({ active = "opponent" })
     H.place(m, "opponent", "striker", 1, H.card("striker", 1800, 500))
+    -- A keeper, so the AI's open-goal rule doesn't take over this scenario.
+    H.place(m, "player", "keeper", 0, H.card("keeper", 300, 1600), "defense")
     local d = H.place(m, "player", "defender", 1, H.card("defender", 900, 2000), "defense")
     d.revealed = true
     local atk = AI._planNextAttack(m, "medium")
