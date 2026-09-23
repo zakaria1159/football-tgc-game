@@ -11,6 +11,7 @@ local TrapActivOverlay   = require("ui.overlay.trapactivation")
 local Prompts            = require("ui.overlay.prompts")
 local PromptPanel        = require("ui.overlay.promptpanel")
 local Reveal             = require("ui.overlay.reveal")
+local MatchEnd           = require("ui.overlay.matchend")
 local AI            = require("ai.opponent")
 local Audio         = require("ui.audio")
 local Character     = require("ui.character")
@@ -80,6 +81,12 @@ local combatT     = 0   -- seconds since the active combat overlay opened (ui/ov
 local toasts = Toasts.new()
 local banner = Banner.new()
 
+-- Half-time ribbon (full width) and the match-end screen
+local HALF_BANNER = { y = 318, w = 1400, h = 84, size = 46, hold = 2.4, slide = 1500 }
+local halfBanner  = Banner.new(HALF_BANNER)
+local pendingHalf = nil   -- half-time text waiting for the overlays to clear
+local winT        = nil   -- seconds since the match-end screen appeared
+
 -- Card zoom (hover any card ~0.3s)
 local hover    = Hover.new()
 local zoomKey  = nil
@@ -131,6 +138,10 @@ function Match.enter(matchStore, difficulty)
     handMouseX, handMouseY = nil, nil
     toasts              = Toasts.new()
     banner              = Banner.new()
+    halfBanner          = Banner.new(HALF_BANNER)
+    pendingHalf         = nil
+    winT                = nil
+    Confetti.reset()
     hover               = Hover.new()
     zoomKey             = nil
     Character.reset()
@@ -151,6 +162,8 @@ function Match.update(dt)
     Character.update(dt, match.players.player.lp)
     toasts:update(dt)
     banner:update(dt)
+    -- Capped step, like the overlays: a stall must not skip the slide-in.
+    halfBanner:update(math.min(dt, 1 / 30))
     TopBar.update(dt, match, mouseX, mouseY)
     BottomBar.update(dt, match, mouseX, mouseY)
 
@@ -174,6 +187,9 @@ function Match.update(dt)
             Match.flash("MIDFIELD CONTROL +1 SUMMON", "good")
         elseif evt.type == "card_drawn" then
             Match.spawnDrawAnim(p.player == "player")
+        elseif evt.type == "half_end" and not match.winner then
+            pendingHalf = MatchEnd.halfText(p.half, match.players.player.halvesWon or 0,
+                match.players.opponent.halvesWon or 0)
         end
         local text, kind = Toasts.describe(evt)
         if text then toasts:push(text, kind) end
@@ -224,6 +240,21 @@ function Match.update(dt)
     end
     -- Capped step, like combatT: a first-draw hitch must not skip the animation.
     if activeTrapActiv and not activeCombat then trapActivT = trapActivT + math.min(dt, 1 / 30) end
+
+    -- Half-time ribbon and match-end screen wait until the overlays are dismissed
+    local overlaysClear = not activeCombat and not activeTrapActiv and #combatQueue == 0 and #trapActivQueue == 0
+    if pendingHalf and overlaysClear then
+        halfBanner:show(pendingHalf, "half")
+        pendingHalf = nil
+    end
+    if match.winner and overlaysClear then
+        local prevWin = winT
+        -- Capped step, like the overlays: a stall must not skip the pop-in.
+        winT = (winT or 0) + math.min(dt, 1 / 30)
+        if match.winner == "player" and (not prevWin or math.floor(prevWin / 1.4) ~= math.floor(winT / 1.4)) then
+            Confetti.burst(math.random(260, 1020), 180, 90)
+        end
+    end
 
     if activeCombat then return end
     if activeTrapActiv then return end
@@ -305,14 +336,14 @@ function Match.draw()
     pitchHitboxes = Pitch.draw(match, interactionState, pitchAnims)
     TopBar.draw(match)
     BottomBar.draw(match, { mode = selectedMode, toasts = toasts, hint = Match.hintText(match) })
-    -- The prompt panel covers the hand: no dock magnification poking out above it.
+    -- The prompt panel / match-end screen covers the hand: no dock magnification poking out.
     local hmx, hmy = handMouseX, handMouseY
-    if promptWindow then hmx, hmy = nil, nil end
+    if promptWindow or winT then hmx, hmy = nil, nil end
     handHit = Hand.draw(match.players.player.hand,
         selectedHandCard and selectedHandCard.id or nil, hmx, hmy)
 
-    -- Confetti
-    Confetti.draw()
+    -- Confetti (drawn above the match-end screen instead, once it is up)
+    if not winT then Confetti.draw() end
 
     -- Card-draw animations (card back from the deck pile; scaled, never resized)
     local dk = Layout.bottom.deck
@@ -344,6 +375,7 @@ function Match.draw()
 
     -- Flash banner
     banner:draw()
+    halfBanner:draw()
 
     -- Combat overlay — drawn directly (backdrop must cover full screen)
     if activeCombat then
@@ -380,7 +412,10 @@ function Match.draw()
     -- Full match log (log button / L)
     if debugLogOpen then debugLogScroll = DebugLog.draw(match, debugLogScroll) end
 
-    if match.winner then Match.drawWinScreen(match) end
+    if winT then
+        MatchEnd.draw(match, winT, mouseX, mouseY)
+        Confetti.draw()
+    end
 
     -- Pause menu / card library (always on top of everything)
     if libraryOpen then CardLibrary.draw() end
@@ -441,43 +476,6 @@ function Match.hintText(match)
         return "Click your card (attack mode) to select an attacker  ·  END TURN when done"
     end
     return ""
-end
-
-function Match.drawWinScreen(match)
-    local W, H = love.graphics.getWidth(), love.graphics.getHeight()
-    love.graphics.setColor(0, 0, 0, 0.88)
-    love.graphics.rectangle("fill", 0, 0, W, H)
-
-    local won = match.winner == "player"
-    local mainCol = won and { 0.15, 1.0, 0.50, 1 } or { 1.0, 0.25, 0.25, 1 }
-
-    -- Result glow
-    love.graphics.setColor(mainCol[1], mainCol[2], mainCol[3], 0.10)
-    love.graphics.rectangle("fill", W/2 - 260, H * 0.22, 520, 80, 8)
-    love.graphics.setColor(mainCol[1], mainCol[2], mainCol[3], 0.40)
-    love.graphics.setLineWidth(2)
-    love.graphics.rectangle("line", W/2 - 260, H * 0.22, 520, 80, 8)
-    love.graphics.setLineWidth(1)
-
-    Fonts.with(44, function()
-        love.graphics.setColor(mainCol)
-        love.graphics.printf(won and "VICTORY" or "DEFEAT", 0, H * 0.25, W, "center")
-    end)
-
-    local p, o = match.players.player, match.players.opponent
-    Fonts.with(16, function()
-        love.graphics.setColor(0.80, 0.80, 0.85, 1)
-        love.graphics.printf(
-            "Halves: You " .. p.halvesWon .. "  —  Opp " .. o.halvesWon,
-            0, H * 0.43, W, "center")
-        love.graphics.printf(
-            "LP Damage: You " .. p.totalDamageDealt .. "  —  Opp " .. o.totalDamageDealt,
-            0, H * 0.52, W, "center")
-    end)
-    Fonts.with(11, function()
-        love.graphics.setColor(0.50, 0.50, 0.58, 1)
-        love.graphics.printf("R to restart  |  ESC for menu", 0, H * 0.65, W, "center")
-    end)
 end
 
 -- ── Highlight helpers ────────────────────────────────────────────────────────
@@ -618,6 +616,9 @@ function Match.mousepressed(x, y, button)
     end
 
     if button ~= 1 then return end
+
+    -- Match-end screen: PLAY AGAIN / MAIN MENU
+    if winT then return MatchEnd.actionAt(x, y) end
 
     -- Dismiss scout reveal overlay
     if scoutReveal then
@@ -913,6 +914,8 @@ function Match.keypressed(key)
         return nil
     end
 
+    if winT then return MatchEnd.keyAction(key) end
+
     if activeTrapActiv then
         if key == "space" or key == "return" then activeTrapActiv = nil end
         return nil
@@ -933,8 +936,6 @@ function Match.keypressed(key)
         elseif substitutionFreedSlot then substitutionFreedSlot = nil
         elseif selectedHandCard      then selectedHandCard      = nil
         else openPause() end
-    elseif key == "r" and store.match and store.match.winner then
-        return "restart"
     end
     return nil
 end

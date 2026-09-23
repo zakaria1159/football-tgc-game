@@ -361,4 +361,55 @@ S.scout = {
     { 5.5,  function(c) c.quit() end },
 }
 
+-- Half time (harness-only: zero the opponent's LP and let the store end the half).
+S.halftime = {
+    { 0.3,  function() math.randomseed(7) end },
+    { 0.5,  kickOff },
+    { 1.5,  function()
+        local st = store()
+        st.match.players.opponent.lp = 0
+        st:_checkHalf()
+    end },
+    { 1.72, function(c) c.snap("slide") end },
+    { 2.4,  function(c) c.snap("ribbon") end },
+    { 4.9,  function(c) c.snap("after") end },
+    { 5.2,  function(c) c.quit() end },
+}
+
+-- Victory (harness-only: you already won a half; win the second), then R to play again.
+S.victory = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, kickOff },
+    { 1.5, function()
+        local st = store()
+        st.match.players.player.halvesWon = 1
+        st.match.players.player.totalDamageDealt = 4000
+        st.match.players.opponent.lp = 0
+        st:_checkHalf()
+    end },
+    { 1.62, function(c) c.snap("pop") end },
+    { 2.6,  function(c) c.snap("win") end },
+    { 2.7,  function() move(center(require("ui.overlay.matchend").PLAY_AGAIN)) end },
+    { 3.0,  function(c) c.snap("hover") end },
+    { 3.1,  function() love.keypressed("r") end },
+    { 3.6,  function(c) c.snap("again") end },
+    { 3.8,  function(c) c.quit() end },
+}
+
+-- Defeat (harness-only), then ESC to the main menu.
+S.defeat = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, kickOff },
+    { 1.5, function()
+        local st = store()
+        st.match.players.opponent.halvesWon = 1
+        st.match.players.player.lp = 0
+        st:_checkHalf()
+    end },
+    { 2.6, function(c) c.snap("loss") end },
+    { 2.7, function() love.keypressed("escape") end },
+    { 3.1, function(c) c.snap("home") end },
+    { 3.3, function(c) c.quit() end },
+}
+
 return S

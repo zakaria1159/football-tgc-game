@@ -48,6 +48,12 @@ function Confetti.update(dt)
     for _, ps in ipairs(systems) do ps:update(dt) end
 end
 
+-- Clears every live particle (a new match must not inherit the last one's confetti).
+function Confetti.reset()
+    if not systems then return end
+    for _, ps in ipairs(systems) do ps:reset() end
+end
+
 function Confetti.draw()
     if not systems then return end
     love.graphics.setColor(1, 1, 1, 1)

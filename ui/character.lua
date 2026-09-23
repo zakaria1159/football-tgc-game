@@ -138,9 +138,10 @@ local BODY_CX = 585                               -- horizontal centre of the bo
 
 -- Bottom-left portrait: art scaled to height h and cropped (quad, no scissor) to width w.
 local _quads = {}
-function Character.drawPortrait(x, y, w, h)
+-- stateOverride forces an expression for this draw only (match-end screen).
+function Character.drawPortrait(x, y, w, h, stateOverride)
     if not loaded then return end
-    local img = imgs[state] or imgs.thinking
+    local img = imgs[stateOverride or state] or imgs.thinking
     local iw, ih = img:getDimensions()
     local s = h / ih
     local srcW = math.min(iw, w / s)
