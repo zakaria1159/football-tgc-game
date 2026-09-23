@@ -19,13 +19,24 @@ function Hand.draw(hand, selectedCardId, mouseX, mouseY)
     end
     local cards, order = HandFan.layout(#hand, Layout.bottom.hand, mouseX, mouseY, sel)
     local W, H = HandFan.CARD_W, HandFan.CARD_H
+    -- Two-pass draw: bodies first, then badges on top, so a neighbouring card's
+    -- body never covers this card's ATK/DEF (both badges now sit bottom-left).
     for _, i in ipairs(order) do
         local c = cards[i]
         love.graphics.push()
         love.graphics.translate(c.cx, c.by)
         love.graphics.rotate(c.angle)
         love.graphics.scale(c.scale, c.scale)
-        Card.drawFace(hand[i], -W / 2, -H, W, H, { selected = (i == sel) })
+        Card.drawFace(hand[i], -W / 2, -H, W, H, { selected = (i == sel), badges = "none" })
+        love.graphics.pop()
+    end
+    for _, i in ipairs(order) do
+        local c = cards[i]
+        love.graphics.push()
+        love.graphics.translate(c.cx, c.by)
+        love.graphics.rotate(c.angle)
+        love.graphics.scale(c.scale, c.scale)
+        Card.drawBadges(hand[i], -W / 2, -H, W, H, { badges = "left" })
         love.graphics.pop()
     end
     hb.cards, hb.order = cards, order

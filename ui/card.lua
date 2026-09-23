@@ -6,7 +6,10 @@
 --   Card.drawLarge(cardDef, x, y, w)        → face + info sticker, returns total h
 -- New:
 --   Card.layout(w, h)                       pure geometry (unit-tested)
---   Card.drawFace(cardDef, x, y, w, h, opts) opts: stats, atkBonus, defBonus, exhausted, selected, target, alpha
+--   Card.drawFace(cardDef, x, y, w, h, opts) opts: stats, atkBonus, defBonus, exhausted, selected, target, alpha,
+--                                                   badges = "corners"|"left"|"none"
+--   Card.drawBadges(cardDef, x, y, w, h, opts) badges only; opts: stats, atkBonus, defBonus, alpha,
+--                                                   badges = "corners"|"left"|"none"
 --   Card.drawBack(x, y, w, h, opts)         opts: label, canFlip, selected, target, alpha
 local Theme  = require("ui.theme")
 local Fonts  = require("ui.fonts")
@@ -52,6 +55,15 @@ function Card.layout(w, h)
     local badge = math.max(16, 34 * s)
     L.atk = { cx = 8 * s,     cy = h - 6 * s, size = badge }
     L.def = { cx = w - 8 * s, cy = h - 6 * s, size = badge * 0.95 }
+
+    -- Hand-only layout: ATK and DEF paired at the bottom-left so neither is
+    -- covered by the neighbouring fanned card (see ui/hand.lua).
+    L.atkLeft = { cx = L.atk.cx, cy = L.atk.cy, size = L.atk.size }
+    L.defLeft = {
+        cx   = L.atkLeft.cx + L.atkLeft.size * 0.5 + L.def.size * 0.5 + 2 * s,
+        cy   = L.atkLeft.cy,
+        size = L.def.size,
+    }
 
     L.tag = { cy = 0, h = math.max(9, 16 * s) }
     L.gem = { cx = w - 12 * s, cy = 12 * s, size = math.max(5, 9 * s) }
@@ -125,6 +137,31 @@ end
 
 -- ── Face ──────────────────────────────────────────────────────────────────────
 
+-- Draws only the ATK/DEF badges (and bonus tag) for a card, given its layout.
+-- opts: stats, atkBonus, defBonus, alpha, badges = "corners" (default) | "left" | "none".
+function Card.drawBadges(cardDef, x, y, w, h, opts)
+    opts = opts or {}
+    if opts.badges == "none" then return end
+    local L     = Card.layout(w, h)
+    local a     = opts.alpha or 1
+    local ctype = cardDef.type
+    local stats = opts.stats or cardDef.stats or {}
+    local hasStats = (ctype == "striker" or ctype == "defender" or ctype == "midfielder" or ctype == "keeper")
+    if not hasStats then return end
+
+    local atkPos, defPos = L.atk, L.def
+    if opts.badges == "left" then
+        atkPos, defPos = L.atkLeft, L.defLeft
+    end
+
+    Draw.atkBadge(x + atkPos.cx, y + atkPos.cy, atkPos.size, (stats.atk or 0) + (opts.atkBonus or 0), a)
+    Draw.defBadge(x + defPos.cx, y + defPos.cy, defPos.size, (stats.def or 0) + (opts.defBonus or 0),
+        opts.defBonus, a)
+    if opts.atkBonus and opts.atkBonus > 0 then
+        Draw.bonusTag(x + atkPos.cx, y + atkPos.cy - atkPos.size / 2 - 2, atkPos.size, opts.atkBonus, a)
+    end
+end
+
 function Card.drawFace(cardDef, x, y, w, h, opts)
     opts = opts or {}
     local L     = Card.layout(w, h)
@@ -158,16 +195,7 @@ function Card.drawFace(cardDef, x, y, w, h, opts)
     drawGem(cardDef.rarity, L, x, y, a)
     drawRibbon(cardDef.name, L, x, y, a)
 
-    local stats = opts.stats or cardDef.stats or {}
-    local hasStats = (ctype == "striker" or ctype == "defender" or ctype == "midfielder" or ctype == "keeper")
-    if hasStats then
-        Draw.atkBadge(x + L.atk.cx, y + L.atk.cy, L.atk.size, (stats.atk or 0) + (opts.atkBonus or 0), a)
-        Draw.defBadge(x + L.def.cx, y + L.def.cy, L.def.size, (stats.def or 0) + (opts.defBonus or 0),
-            opts.defBonus, a)
-        if opts.atkBonus and opts.atkBonus > 0 then
-            Draw.bonusTag(x + L.atk.cx, y + L.atk.cy - L.atk.size / 2 - 2, L.atk.size, opts.atkBonus, a)
-        end
-    end
+    Card.drawBadges(cardDef, x, y, w, h, opts)
 
     if opts.exhausted then drawExhausted(L, x, y, a) end
 end
@@ -249,7 +277,7 @@ function Card.drawInHand(cardDef, x, y, opts)
     opts = opts or {}
     local w = opts.w or Theme.cardSize.hand.w
     local h = opts.h or Theme.cardSize.hand.h
-    Card.drawFace(cardDef, x, y, w, h, { selected = opts.selected })
+    Card.drawFace(cardDef, x, y, w, h, { selected = opts.selected, badges = "left" })
     return { x = x, y = y, w = w, h = h }
 end
 

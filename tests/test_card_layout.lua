@@ -40,3 +40,19 @@ T.test("scale follows width", function()
     T.near(Card.layout(300, 410).s, 300 / 108)
     T.near(Card.layout(54, 74).s, 0.5)
 end)
+
+T.test("left-paired atk/def badges sit together at the bottom-left", function()
+    for _, sz in ipairs(SIZES) do
+        local w, h = sz[1], sz[2]
+        local L = Card.layout(w, h)
+        T.ok(L.atkLeft and L.defLeft, "layout exposes atkLeft/defLeft at " .. w)
+        T.near(L.atkLeft.cx, L.atk.cx)
+        T.near(L.atkLeft.cy, L.atk.cy)
+        T.near(L.defLeft.cy, L.atkLeft.cy)
+        T.ok(L.defLeft.cx > L.atkLeft.cx, "defLeft is right of atkLeft at " .. w)
+        T.ok(L.defLeft.cx - L.defLeft.size / 2 >= L.atkLeft.cx + L.atkLeft.size / 2,
+            "atk/def pair doesn't overlap at " .. w)
+        T.ok(L.defLeft.cx + L.defLeft.size / 2 <= w * 0.62,
+            "left pair stays in the left ~60%% of the card at " .. w)
+    end
+end)
