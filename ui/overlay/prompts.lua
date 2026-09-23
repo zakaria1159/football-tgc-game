@@ -87,7 +87,7 @@ function Prompts.drawCover(cw, slide, mx, my)
     local slotName = Theme.typeLabel[es.type] or string.upper(tostring(es.type or "?"))
     info(L, "INCOMING ATTACK",
         snapLine(cw.attackerSnap, "atk") .. " is attacking your empty " .. slotName .. " slot.",
-        "A covering card can't act next turn.")
+        "A covering card can't act next turn (Sweeper and Off the line excepted).")
     for i, cov in ipairs(cw.eligibleCoverers) do
         local o = L.options[i]
         if o then

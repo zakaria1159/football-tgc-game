@@ -355,4 +355,39 @@ function R.onMidfieldControl(matchState, playerId)
     R.trigger(matchState, playerId, mid, "METRONOME")
 end
 
+-- ── Cover hooks ───────────────────────────────────────────────────────────────
+
+-- Extra cover permissions (the normal rule: the midfielder covers an empty defender slot,
+-- any defender covers an empty midfielder slot). fromSlotType: the covering card's slot.
+--   Intercept: a defender-slot card may cover an empty defender slot.
+--   Sweeper: a defender- or midfielder-slot card may cover an empty defender or midfielder slot.
+--   Off the line: the keeper may cover an empty defender slot.
+function R.canCoverSlot(pitched, fromSlotType, emptySlotType)
+    local kw = R.keyword(pitched)
+    if kw == "INTERCEPT" then
+        return fromSlotType == "defender" and emptySlotType == "defender"
+    end
+    if kw == "SWEEPER" then
+        return (fromSlotType == "defender" or fromSlotType == "midfielder")
+           and (emptySlotType == "defender" or emptySlotType == "midfielder")
+    end
+    if kw == "OFF_THE_LINE" then
+        return fromSlotType == "keeper" and emptySlotType == "defender"
+    end
+    return false
+end
+
+-- Covering stops the coverer acting on its owner's next turn, except Sweeper and Off the line.
+function R.coverLocks(pitched)
+    return not (R.has(pitched, "SWEEPER") or R.has(pitched, "OFF_THE_LINE"))
+end
+
+-- The keyword to announce when this card covers, or nil for a plain cover.
+function R.coverKeyword(pitched, fromSlotType, emptySlotType)
+    local kw = R.keyword(pitched)
+    if kw == "SWEEPER" or kw == "OFF_THE_LINE" then return kw end
+    if kw == "INTERCEPT" and fromSlotType == "defender" and emptySlotType == "defender" then return kw end
+    return nil
+end
+
 return R

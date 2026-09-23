@@ -1,0 +1,101 @@
+local T = require("tests.t")
+local H = require("tests.helpers")
+
+-- ── Intercept ─────────────────────────────────────────────────────────────────
+
+T.test("Intercept: it may cover an empty defender slot (and is locked, as usual)", function()
+    local m = H.match()
+    H.place(m, "player", "striker", 1, H.card("striker", 1700, 500))
+    local pb = H.place(m, "opponent", "defender", 2, H.kw("INTERCEPT", "defender", 950, 1800))
+    local s = H.store(m)
+    local r = s:declareAttack(H.slot("striker", 1), H.slot("defender", 1))
+    T.eq(r.outcome, "cover_needed")
+    T.eq(r.eligibleCoverers[1].type, "defender"); T.eq(r.eligibleCoverers[1].index, 2)
+    r = s:resolveCover(H.slot("defender", 2))
+    T.eq(r.outcome, "attacker_exhausted")
+    T.eq(pb.cannotActNextTurn, true)
+    local t = H.triggers(m)
+    T.eq(#t, 1); T.eq(t[1].keyword, "INTERCEPT"); T.eq(t[1].player, "opponent")
+end)
+
+T.test("Intercept: a plain defender can't cover an empty defender slot", function()
+    local m = H.match()
+    H.place(m, "player", "striker", 1, H.card("striker", 1700, 500))
+    H.place(m, "opponent", "defender", 2, H.card("defender", 950, 1800))
+    local r = H.store(m):declareAttack(H.slot("striker", 1), H.slot("defender", 1))
+    T.eq(r.outcome, "damage")                          -- straight through to an open goal
+end)
+
+-- ── Sweeper ───────────────────────────────────────────────────────────────────
+
+T.test("Sweeper: covers an empty defender slot and is not locked", function()
+    local m = H.match()
+    H.place(m, "player", "striker", 1, H.card("striker", 1400, 500))
+    local lib = H.place(m, "opponent", "defender", 2, H.kw("SWEEPER", "defender", 1600, 1500))
+    local s = H.store(m)
+    T.eq(s:declareAttack(H.slot("striker", 1), H.slot("defender", 1)).outcome, "cover_needed")
+    local r = s:resolveCover(H.slot("defender", 2))
+    T.eq(r.outcome, "attacker_exhausted")
+    T.eq(lib.cannotActNextTurn, false)
+    local t = H.triggers(m)
+    T.eq(#t, 1); T.eq(t[1].keyword, "SWEEPER")
+end)
+
+T.test("Sweeper: covering the midfielder slot doesn't lock it either", function()
+    local m = H.match()
+    H.place(m, "player", "striker", 1, H.card("striker", 1400, 500))
+    local lib = H.place(m, "opponent", "defender", 1, H.kw("SWEEPER", "defender", 1600, 1500))
+    local s = H.store(m)
+    T.eq(s:declareAttack(H.slot("striker", 1), H.slot("midfielder")).outcome, "cover_needed")
+    T.eq(s:resolveCover(H.slot("defender", 1)).outcome, "attacker_exhausted")
+    T.eq(lib.cannotActNextTurn, false)
+end)
+
+T.test("Sweeper: a plain defender that covers is locked", function()
+    local m = H.match()
+    H.place(m, "player", "striker", 1, H.card("striker", 1400, 500))
+    local d = H.place(m, "opponent", "defender", 1, H.card("defender", 1600, 1500))
+    local s = H.store(m)
+    s:declareAttack(H.slot("striker", 1), H.slot("midfielder"))
+    s:resolveCover(H.slot("defender", 1))
+    T.eq(d.cannotActNextTurn, true)
+    T.eq(#H.triggers(m), 0)
+end)
+
+-- ── Off the line ──────────────────────────────────────────────────────────────
+
+local function keeperBoard(atk, keeperDef)
+    local m = H.match()
+    H.place(m, "player", "striker", 1, H.card("striker", atk, 500))
+    local k = H.place(m, "opponent", "keeper", 0, keeperDef, "defense")
+    return m, H.store(m), k
+end
+
+T.test("Off the line: the keeper covers an empty defender slot with its DEF and stays ready", function()
+    local m, s, k = keeperBoard(1700, H.kw("OFF_THE_LINE", "keeper", 400, 1800))
+    local r = s:declareAttack(H.slot("striker", 1), H.slot("defender", 1))
+    T.eq(r.outcome, "cover_needed"); T.eq(r.eligibleCoverers[1].type, "keeper")
+    r = s:resolveCover(H.slot("keeper"))
+    T.eq(r.outcome, "attacker_exhausted"); T.eq(r.damage, 100)
+    T.eq(m.players.opponent.pitch.keeper, k)
+    T.eq(k.cannotActNextTurn, false); T.eq(k.exhausted, false); T.eq(k.revealed, true)
+    T.eq(m.coverUsed.opponent, true)
+    T.eq(s.combatQueue[1].defender.def, 1800); T.eq(s.combatQueue[1].defender.isKeeper, false)
+    local t = H.triggers(m)
+    T.eq(#t, 1); T.eq(t[1].keyword, "OFF_THE_LINE")
+end)
+
+T.test("Off the line: a keeper that loses the cover fight is destroyed like any coverer", function()
+    local m, s = keeperBoard(2000, H.kw("OFF_THE_LINE", "keeper", 400, 1800))
+    T.eq(s:declareAttack(H.slot("striker", 1), H.slot("defender", 1)).outcome, "cover_needed")
+    local r = s:resolveCover(H.slot("keeper"))
+    T.eq(r.outcome, "defender_destroyed")
+    T.eq(m.players.opponent.pitch.keeper, nil)
+    T.eq(m.players.opponent.lp, 4000)                  -- a defense-mode card: no LP damage
+end)
+
+T.test("Off the line: other keepers never cover", function()
+    local _, s = keeperBoard(1700, H.card("keeper", 400, 1800))
+    local r = s:declareAttack(H.slot("striker", 1), H.slot("defender", 1))
+    T.eq(r.outcome, "save")
+end)

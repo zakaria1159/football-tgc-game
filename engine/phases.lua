@@ -405,21 +405,25 @@ function Phases.resolveCover(matchState, attackerSlot, originalEmptySlot, covere
     if not attacker then return nil, "no attacker" end
 
     if covererSlot then
-        -- Mark cover as used
+        -- Mark cover as used (once per turn per side — Off the line included)
         matchState.coverUsed[opponentId] = true
         local coverer = Phases._getSlotForPlayer(matchState, opponentId, covererSlot)
         if not coverer then return nil, "no coverer" end
 
-        -- Coverers are attack-mode cards; mark defensively in case that ever changes
+        -- Coverers are attack-mode cards, except an Off the line keeper (it gets revealed)
         if coverer.mode == "defense" then coverer.revealed = true end
 
-        -- Covering card cannot act next turn
-        coverer.cannotActNextTurn = true
+        -- A covering card cannot act next turn — not a Sweeper or an Off the line keeper
+        if Resolver.coverLocks(coverer) then coverer.cannotActNextTurn = true end
 
         State.log(matchState, T.EventType.COVER,
             { coverer = covererSlot, emptySlot = originalEmptySlot })
 
-        return Phases._doCombat(matchState, attacker, coverer, attackerSlot, covererSlot, opponentId, true)
+        local keyword = Resolver.coverKeyword(coverer, covererSlot.type, originalEmptySlot.type)
+        local result  = Phases._doCombat(matchState, attacker, coverer, attackerSlot, covererSlot,
+                                         opponentId, true)
+        if keyword then Resolver.trigger(matchState, opponentId, coverer, keyword, nil, result) end
+        return result
     else
         -- Let through: advance to next occupied line
         return Phases._advanceThrough(matchState, attacker, attackerSlot, originalEmptySlot, opponentId)
@@ -517,24 +521,36 @@ function Phases._nextOccupiedLine(pitch, fromSlot)
     return nil
 end
 
--- Returns eligible covering cards for an empty slot.
--- Coverers must be from the next line back and not exhausted/cannotAct.
+-- Returns eligible covering cards for an empty slot: { type, index, card } in slot order
+-- (midfielder, defenders, keeper). Every coverer must be ready (not exhausted, not locked).
+--   Empty defender slot: the midfielder; an Intercept or Sweeper defender; an Off the line keeper.
+--   Empty midfielder slot: any defender.
+-- Field coverers must be in attack mode; an Off the line keeper covers in either mode.
 function Phases._eligibleCoverers(pitch, emptySlot)
     local coverers = {}
-    local function addIfEligible(card, slotType, slotIndex)
-        if card and not card.exhausted and not card.cannotActNextTurn
-           and card.mode == "attack" then
-            table.insert(coverers, { type = slotType, index = slotIndex, card = card })
-        end
+    local et = emptySlot.type
+    if et ~= "defender" and et ~= "midfielder" then return coverers end
+    local function ready(card)
+        return card and not card.exhausted and not card.cannotActNextTurn
+    end
+    local function add(card, slotType, slotIndex)
+        table.insert(coverers, { type = slotType, index = slotIndex, card = card })
     end
 
-    if emptySlot.type == "defender" then
-        -- Midfielder can cover an empty defender slot
-        addIfEligible(pitch.midfielder, "midfielder", 0)
-    elseif emptySlot.type == "midfielder" then
-        -- Any defender can cover an empty midfielder slot
-        for i = 1, C.PITCH.MAX_DEFENDERS do addIfEligible(pitch.defenders[i], "defender", i) end
+    local mid = pitch.midfielder
+    if ready(mid) and mid.mode == "attack"
+       and (et == "defender" or Resolver.canCoverSlot(mid, "midfielder", et)) then
+        add(mid, "midfielder", 0)
     end
+    for i = 1, C.PITCH.MAX_DEFENDERS do
+        local d = pitch.defenders[i]
+        if ready(d) and d.mode == "attack"
+           and (et == "midfielder" or Resolver.canCoverSlot(d, "defender", et)) then
+            add(d, "defender", i)
+        end
+    end
+    local k = pitch.keeper
+    if ready(k) and Resolver.canCoverSlot(k, "keeper", et) then add(k, "keeper", 0) end
     return coverers
 end
 
