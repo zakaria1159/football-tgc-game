@@ -28,8 +28,20 @@ T.test("card sizes match the spec", function()
 end)
 
 T.test("button variants have gradient, text and shadow colors", function()
-    for _, v in ipairs({ "primary", "go", "danger", "neutral", "icon" }) do
+    for _, v in ipairs({ "primary", "go", "danger", "neutral", "blue", "icon" }) do
         local b = Theme.button[v]
         T.ok(b and b.fill and b.text and b.shadow, "incomplete button variant " .. v)
     end
+end)
+
+T.test("overlay outcome colours and deck fills are two-stop gradients", function()
+    for _, k in ipairs({ "red", "orange", "blue", "yellow", "grey", "purple" }) do
+        local g = Theme.outcome[k]
+        T.ok(g and g[1] and g[2], "missing outcome " .. k)
+    end
+    for _, k in ipairs({ "tikitaka", "longball", "catenaccio" }) do
+        local g = Theme.deckFill[k]
+        T.ok(g and g[1] and g[2], "missing deckFill " .. k)
+    end
+    T.near(Theme.dim[4], 0.72)
 end)

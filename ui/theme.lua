@@ -41,6 +41,7 @@ Theme.button = {
     go      = { fill = { hex("7dff8a"), hex("22b347") }, text = { 1, 1, 1, 1 }, shadow = hex("137a2e") },
     danger  = { fill = { hex("ff8a8a"), hex("e0243a") }, text = { 1, 1, 1, 1 }, shadow = hex("8f1026") },
     neutral = { fill = { hex("ffffff"), hex("dfe3f0") }, text = hex("2b2b6b"), shadow = hex("1d1d59") },
+    blue    = { fill = { hex("6ac8ff"), hex("1f78e0") }, text = { 1, 1, 1, 1 }, shadow = hex("0f4a9a") },
     icon    = { fill = { { 1, 1, 1, 0.18 }, { 1, 1, 1, 0.10 } }, text = { 1, 1, 1, 1 }, shadow = { 0.114, 0.114, 0.349, 0.6 } },
 }
 
@@ -73,6 +74,26 @@ Theme.cardSize = {
     hand  = { w = 120, h = 165 },
     zoom  = { w = 300, h = 410 },
 }
+
+-- Result ribbons, trap purple, match-end grey (overlays).
+Theme.outcome = {
+    red    = { hex("ff8a8a"), hex("e0243a") },
+    orange = { hex("ffc15a"), hex("f07a0c") },
+    blue   = { hex("6ac8ff"), hex("1f78e0") },
+    yellow = { hex("ffd23a"), hex("ff9a1a") },
+    grey   = { hex("d7dcea"), hex("8f99b5") },
+    purple = { hex("c77dff"), hex("7b2cbf") },
+}
+
+-- Deck-select tiles (keys match data/presetDecks.lua).
+Theme.deckFill = {
+    tikitaka   = { hex("6ee7a0"), hex("16a34a") },
+    longball   = { hex("ff7a59"), hex("e0243a") },
+    catenaccio = { hex("4fb8ff"), hex("2563eb") },
+}
+
+-- Navy dim behind menus and overlays.
+Theme.dim = hex("1d1d59", 0.72)
 
 -- ══ Legacy tokens ════════════════════════════════════════════════════════════
 

@@ -63,3 +63,19 @@ T.test("starPoints has 10 points, the first at the top tip", function()
     T.near(p[1], 50); T.near(p[2], 40)
     T.near(math.sqrt((p[3] - 50) ^ 2 + (p[4] - 60) ^ 2), 9)   -- inner radius 0.45 r
 end)
+
+T.test("burstPoints alternates outer and inner radius, first point on top", function()
+    local p = Draw.burstPoints(100, 50, 40, 20, 12)
+    T.eq(#p, 12 * 2 * 2)
+    T.near(p[1], 100); T.near(p[2], 10)
+    for i = 1, #p, 2 do
+        local d = math.sqrt((p[i] - 100) ^ 2 + (p[i + 1] - 50) ^ 2)
+        local want = (((i - 1) / 2) % 2 == 0) and 40 or 20
+        T.near(d, want, 1e-9)
+    end
+end)
+
+T.test("burstPoints rotation offsets the first point", function()
+    local p = Draw.burstPoints(0, 0, 10, 5, 5, 0)
+    T.near(p[1], 10); T.near(p[2], 0)
+end)

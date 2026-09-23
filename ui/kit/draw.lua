@@ -386,4 +386,69 @@ function Draw.star(cx, cy, r, color, alphaMul)
     Draw.setColor(color or Theme.highlight.selected, alphaMul); fillStar(cx, cy, r)
 end
 
+-- ── Menus & overlays ──────────────────────────────────────────────────────────
+
+-- n-spike burst outline {x1,y1,...}: alternating outer/inner radius, first point at
+-- angle rot (default: straight up). Pure (unit-tested).
+function Draw.burstPoints(cx, cy, rOuter, rInner, n, rot)
+    rot = rot or -math.pi / 2
+    local p = {}
+    for i = 0, n * 2 - 1 do
+        local a = rot + i * math.pi / n
+        local rad = (i % 2 == 0) and rOuter or rInner
+        p[#p + 1] = cx + math.cos(a) * rad
+        p[#p + 1] = cy + math.sin(a) * rad
+    end
+    return p
+end
+
+-- Concave outline filled as a fan of triangles around (cx, cy).
+local function fillFan(cx, cy, p)
+    for i = 1, #p, 2 do
+        local nx = i + 2
+        if nx > #p then nx = 1 end
+        love.graphics.polygon("fill", cx, cy, p[i], p[i + 1], p[nx], p[nx + 1])
+    end
+end
+
+-- Starburst ("CLASH!") with a white rim and a hard ink shadow; rot spins it.
+function Draw.burst(cx, cy, rOuter, rInner, n, color, alphaMul, rot)
+    local sh = math.max(2, math.floor(rOuter * 0.06))
+    Draw.setColor(Theme.ink, alphaMul)
+    fillFan(cx, cy + sh, Draw.burstPoints(cx, cy + sh, rOuter + 5, rInner + 5, n, rot))
+    Draw.setColor(Theme.white, alphaMul)
+    fillFan(cx, cy, Draw.burstPoints(cx, cy, rOuter + 5, rInner + 5, n, rot))
+    Draw.setColor(color or Theme.highlight.selected, alphaMul)
+    fillFan(cx, cy, Draw.burstPoints(cx, cy, rOuter, rInner, n, rot))
+end
+
+-- Solid triangle arrow (the fonts have no ▶ / ◀). dir: 1 = right, -1 = left.
+function Draw.arrow(cx, cy, size, dir, color, alphaMul)
+    local h = size / 2
+    Draw.setColor(color or Theme.white, alphaMul)
+    love.graphics.polygon("fill", cx - dir * h * 0.8, cy - h, cx + dir * h, cy, cx - dir * h * 0.8, cy + h)
+end
+
+-- ✕ glyph (the fonts have none): two thick strokes.
+function Draw.cross(cx, cy, size, color, width, alphaMul)
+    local h = size / 2
+    Draw.setColor(color or Theme.white, alphaMul)
+    love.graphics.setLineWidth(width or math.max(3, size * 0.22))
+    love.graphics.line(cx - h, cy - h, cx + h, cy + h)
+    love.graphics.line(cx - h, cy + h, cx + h, cy - h)
+    love.graphics.setLineWidth(1)
+end
+
+-- "CLICK OR SPACE ▶" style hint pill centred on cx; the arrow is drawn, not typed.
+function Draw.hintPill(cx, y, text, alpha)
+    local size, h = 18, 34
+    local w = Fonts.get(size):getWidth(text) + 64
+    local x = cx - w / 2
+    Draw.sticker(x, y, w, h, { r = h / 2, fill = Theme.white, border = 2, shadow = 3, alpha = alpha })
+    Draw.text(text, x + 18, y + (h - size) / 2 - 2, w - 58, "center", {
+        size = size, color = Theme.inkText, alpha = alpha,
+    })
+    Draw.arrow(x + w - 24, y + h / 2, 14, 1, Theme.inkText, alpha)
+end
+
 return Draw
