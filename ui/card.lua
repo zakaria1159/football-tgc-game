@@ -206,6 +206,22 @@ end
 
 -- ── Public API (existing contract) ────────────────────────────────────────────
 
+-- Bonuses shown on a pitched card's badges. Pure (unit-tested).
+--   striker  → +ATK from an attack-mode midfielder card
+--   defender → +DEF from a defense-mode midfielder card
+--   keeper   → effective DEF (defenders + midfielder) minus base DEF
+function Card.bonuses(pitched, pitch)
+    if not pitch then return 0, 0 end
+    local st = pitched.slotType
+    if st == "striker"  then return Combat.midfielderCardAtkBonus(pitch) or 0, 0 end
+    if st == "defender" then return 0, Combat.midfielderCardDefBonus(pitch) or 0 end
+    if st == "keeper" then
+        local base = (pitched.definition.stats and pitched.definition.stats.def) or 0
+        return 0, Combat.keeperEffectiveDef(pitched, pitch) - base
+    end
+    return 0, 0
+end
+
 function Card.drawPitched(pitched, x, y, opts)
     opts = opts or {}
     local w = opts.w or Theme.cardSize.pitch.w
@@ -220,11 +236,7 @@ function Card.drawPitched(pitched, x, y, opts)
         return
     end
 
-    local atkBonus, defBonus = 0, 0
-    if opts.pitch then
-        if pitched.slotType == "striker"  then atkBonus = Combat.midfielderCardAtkBonus(opts.pitch) or 0 end
-        if pitched.slotType == "defender" then defBonus = Combat.midfielderCardDefBonus(opts.pitch) or 0 end
-    end
+    local atkBonus, defBonus = Card.bonuses(pitched, opts.pitch)
 
     Card.drawFace(pitched.definition, x, y, w, h, {
         atkBonus = atkBonus > 0 and atkBonus or nil,
