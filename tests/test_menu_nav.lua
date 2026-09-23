@@ -1,0 +1,20 @@
+local T   = require("tests.t")
+local Nav = require("ui.menu.nav")
+
+T.test("nav clamps at both ends by default", function()
+    local n = Nav.new(3)
+    T.eq(n.index, 1)
+    n:move(-1); T.eq(n.index, 1)
+    n:move(1); n:move(1); n:move(1); T.eq(n.index, 3)
+end)
+
+T.test("nav wraps when asked", function()
+    local n = Nav.new(3, { wrap = true })
+    n:move(-1); T.eq(n.index, 3)
+    n:move(1);  T.eq(n.index, 1)
+end)
+
+T.test("set ignores out-of-range indices", function()
+    local n = Nav.new(3, { index = 2 })
+    T.eq(n:set(0), 2); T.eq(n:set(4), 2); T.eq(n:set(3), 3); T.eq(n:set(nil), 3)
+end)
