@@ -104,4 +104,82 @@ function R.logParts(matchState, ownerId, parts, result)
     end
 end
 
+-- ── Stat bonuses ──────────────────────────────────────────────────────────────
+
+-- Midfielder card bonus for striker-slot ATK (a midfielder-type card in the midfielder
+-- slot): +200 in attack mode; Overlap +300 in attack mode; Engine +100 in either mode.
+-- visibleOnly: a face-down, unrevealed midfielder gives nothing (its opponent's view).
+-- Returns amount, part (a keyword part, or nil for the plain bonus or no bonus).
+function R.midfieldAtkBonus(pitch, visibleOnly)
+    local mid = pitch and pitch.midfielder
+    if not mid or mid.definition.type ~= "midfielder" then return 0, nil end
+    if visibleOnly and R.hidden(mid) then return 0, nil end
+    local kw = R.keyword(mid)
+    if kw == "ENGINE" then return A.ENGINE_ATK, R.part(A.ENGINE_ATK, mid, "ENGINE") end
+    if mid.mode ~= "attack" then return 0, nil end
+    if kw == "OVERLAP" then return A.OVERLAP_ATK, R.part(A.OVERLAP_ATK, mid, "OVERLAP") end
+    return C.COMBAT.MIDFIELDER_CARD_ATK_BONUS, nil
+end
+
+-- Midfielder card bonus for defender-slot DEF: +200 in defense mode; Engine +100 in either
+-- mode. Returns amount, part.
+function R.midfieldDefBonus(pitch, visibleOnly)
+    local mid = pitch and pitch.midfielder
+    if not mid or mid.definition.type ~= "midfielder" then return 0, nil end
+    if visibleOnly and R.hidden(mid) then return 0, nil end
+    if R.has(mid, "ENGINE") then return A.ENGINE_DEF, R.part(A.ENGINE_DEF, mid, "ENGINE") end
+    if mid.mode ~= "defense" then return 0, nil end
+    return C.COMBAT.MIDFIELDER_CARD_DEF_BONUS, nil
+end
+
+-- ATK bonus of an attacking card.
+--   ctx = { slotType, ownPitch, oppPitch, shot, keeper, visibleOnly }
+--   striker slot: the midfielder card bonus (R.midfieldAtkBonus) and Link-up (+150 from
+--   each other Link-up card on the attacker's pitch, any slot).
+-- Returns total, parts (keyword parts only).
+function R.atkBonus(pitched, ctx)
+    local total, parts = 0, {}
+    local function add(amount, part)
+        total = total + amount
+        if part then parts[#parts + 1] = part end
+    end
+    if ctx.slotType == "striker" then
+        add(R.midfieldAtkBonus(ctx.ownPitch, ctx.visibleOnly))
+        for _, e in ipairs(R.fieldCards(ctx.ownPitch)) do
+            local c = e.card
+            if c ~= pitched and R.has(c, "LINK_UP") and not (ctx.visibleOnly and R.hidden(c)) then
+                add(A.LINK_UP_ATK, R.part(A.LINK_UP_ATK, c, "LINK_UP"))
+            end
+        end
+    end
+    return total, parts
+end
+
+-- DEF bonus of a defending card.
+--   ctx = { slotType, ownPitch, covering, visibleOnly }
+--   defender slot: the midfielder card bonus (R.midfieldDefBonus) and Last man (+300 while
+--   it is the only card in its owner's defender slots); covering: Counter-press (+300).
+-- Returns total, parts.
+function R.defBonus(pitched, ctx)
+    local total, parts = 0, {}
+    local function add(amount, part)
+        total = total + amount
+        if part then parts[#parts + 1] = part end
+    end
+    if ctx.slotType == "defender" then
+        add(R.midfieldDefBonus(ctx.ownPitch, ctx.visibleOnly))
+        if R.has(pitched, "LAST_MAN") then
+            local n = 0
+            for i = 1, C.PITCH.MAX_DEFENDERS do
+                if ctx.ownPitch and ctx.ownPitch.defenders and ctx.ownPitch.defenders[i] then n = n + 1 end
+            end
+            if n == 1 then add(A.LAST_MAN_DEF, R.part(A.LAST_MAN_DEF, pitched, "LAST_MAN")) end
+        end
+    end
+    if ctx.covering and R.has(pitched, "COUNTER_PRESS") then
+        add(A.COUNTER_PRESS_DEF, R.part(A.COUNTER_PRESS_DEF, pitched, "COUNTER_PRESS"))
+    end
+    return total, parts
+end
+
 return R

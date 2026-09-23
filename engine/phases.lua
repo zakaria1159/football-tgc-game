@@ -2,6 +2,7 @@ local C      = require("engine.constants")
 local T      = require("engine.types")
 local State  = require("engine.state")
 local Combat = require("engine.combat")
+local Resolver = require("engine.cards.resolver")
 
 local Phases = {}
 
@@ -365,7 +366,7 @@ function Phases.resolveCover(matchState, attackerSlot, originalEmptySlot, covere
         State.log(matchState, T.EventType.COVER,
             { coverer = covererSlot, emptySlot = originalEmptySlot })
 
-        return Phases._doCombat(matchState, attacker, coverer, attackerSlot, covererSlot, opponentId)
+        return Phases._doCombat(matchState, attacker, coverer, attackerSlot, covererSlot, opponentId, true)
     else
         -- Let through: advance to next occupied line
         return Phases._advanceThrough(matchState, attacker, attackerSlot, originalEmptySlot, opponentId)
@@ -473,8 +474,9 @@ function Phases._eligibleCoverers(pitch, emptySlot)
     return coverers
 end
 
--- Full combat resolution between attacker and defender.
-function Phases._doCombat(matchState, attacker, defender, attackerSlot, defenderSlot, opponentId)
+-- Full combat resolution between attacker and defender. covering: the defender covers an
+-- empty slot (Counter-press).
+function Phases._doCombat(matchState, attacker, defender, attackerSlot, defenderSlot, opponentId, covering)
     attacker.usedAsAttacker = true
 
     local activeId        = matchState.activePlayer
@@ -485,8 +487,11 @@ function Phases._doCombat(matchState, attacker, defender, attackerSlot, defender
     local result = Combat.resolve(
         attacker, defender,
         attackerSlot.type, defenderSlot.type,
-        atkPitch, defPitch
+        atkPitch, defPitch, { covering = covering }
     )
+    -- Stat abilities that changed this fight (Link-up, Last man, Counter-press, Engine, Overlap)
+    Resolver.logParts(matchState, activeId, result.atkParts, result)
+    Resolver.logParts(matchState, opponentId, result.defParts, result)
 
     -- A face-down defender is revealed but stays in defense mode (no battle damage,
     -- defense bonuses kept). Attackers are always in attack mode.
@@ -536,6 +541,9 @@ function Phases._goalAttempt(matchState, striker, keeper, attackerSlot, opponent
     local result   = Combat.resolveShot(striker, keeper, oppPitch, atkPitch, penaltyMode,
                                         attackerSlot and attackerSlot.type)
     result.attackerSlot = attackerSlot
+    -- Stat abilities that changed this shot (shooter's and keeper's side)
+    Resolver.logParts(matchState, activeId, result.atkParts, result)
+    Resolver.logParts(matchState, opponentId, result.defParts, result)
 
     -- A face-down keeper is revealed (it stays in defense mode)
     if keeper and keeper.mode == "defense" then keeper.revealed = true end
@@ -663,7 +671,7 @@ function Phases._bestStriker(pitch)
     for i = 1, C.PITCH.MAX_STRIKERS do
         local c = pitch.strikers[i]
         if c and not c.exhausted and not c.cannotActNextTurn and c.mode == "attack" then
-            local atk = Combat.getStat(c, "attack") + Combat.midfielderCardAtkBonus(pitch)
+            local atk = Combat.attackStat(c, "striker", pitch)
             if atk > bestAtk then bestAtk = atk; best = c; bestSlot = { type="striker", index=i } end
         end
     end

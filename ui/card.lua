@@ -234,27 +234,31 @@ end
 
 -- ── Public API (existing contract) ────────────────────────────────────────────
 
--- Bonuses shown on a pitched card's badges. Pure (unit-tested).
---   striker  → +ATK from an attack-mode midfielder card
---   defender → +DEF from a defense-mode midfielder card
---   keeper   → effective DEF (defenders + midfielder) minus base DEF
--- hideHidden: the card is the opponent's. Their unrevealed face-down midfielder is hidden,
--- so its +DEF isn't shown (it would tell a midfielder card apart from another type).
--- The keeper's +150 comes from any card in the slot, so it gives nothing away.
+-- Bonuses shown on a pitched card's badges: its always-on bonuses. Pure (unit-tested).
+--   striker  → +ATK: midfielder card bonus (Engine / Overlap) and Link-up
+--   defender → +DEF: midfielder card bonus (Engine) and Last man
+--   keeper   → effective DEF minus base DEF (line, Bolt, midfielder, Safe hands)
+-- Situational bonuses (Instinct, Opportunist, Counter-press) are not shown here.
+-- hideHidden: the card is the opponent's; bonuses from their face-down, unrevealed cards
+-- (a hidden midfielder's bonus, a hidden Link-up or Bolt card) are hidden information.
+-- Returns atkBonus, defBonus, atkParts, defParts.
 function Card.bonuses(pitched, pitch, hideHidden)
-    if not pitch then return 0, 0 end
-    local st = pitched.slotType
-    if st == "striker"  then return Combat.midfielderCardAtkBonus(pitch) or 0, 0 end
+    if not pitch then return 0, 0, {}, {} end
+    local st    = pitched.slotType
+    local stats = pitched.definition.stats or {}
+    if st == "striker" then
+        local atk, parts = Combat.attackStat(pitched, "striker", pitch, nil, nil, hideHidden)
+        return atk - (stats.atk or 0), 0, parts, {}
+    end
     if st == "defender" then
-        local mid = pitch.midfielder
-        if hideHidden and mid and mid.mode == "defense" and not mid.revealed then return 0, 0 end
-        return 0, Combat.midfielderCardDefBonus(pitch) or 0
+        local def, parts = Combat.defendStat(pitched, "defender", pitch, false, hideHidden)
+        return 0, def - (stats.def or 0), {}, parts
     end
     if st == "keeper" then
-        local base = (pitched.definition.stats and pitched.definition.stats.def) or 0
-        return 0, Combat.keeperEffectiveDef(pitched, pitch) - base
+        local def, parts = Combat.keeperDef(pitched, pitch, false, hideHidden)
+        return 0, def - (stats.def or 0), {}, parts
     end
-    return 0, 0
+    return 0, 0, {}, {}
 end
 
 -- True when a pitched card is drawn face-up: attack mode, or a revealed defense-mode
