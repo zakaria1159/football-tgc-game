@@ -18,7 +18,7 @@ function AI.planTurn()
     }
 end
 
--- Returns (done, extraActions).
+-- Returns (done, extraActions, attackErr); attackErr is set when an attack was refused.
 function AI.executeAction(store, action)
     local difficulty = store.aiDifficulty or "medium"
 
@@ -57,7 +57,14 @@ function AI.executeAction(store, action)
         return false, {}
 
     elseif action.type == "attack" then
-        store:declareAttack(action.attackerSlot, action.defenderSlot)
+        local _, err = store:declareAttack(action.attackerSlot, action.defenderSlot)
+        if err then
+            -- Refused: don't plan this attacker again this turn (planAttacks would
+            -- otherwise pick the same attack forever).
+            local card = Phases._getSlot(store.match.players.opponent.pitch, action.attackerSlot)
+            if card then card.aiRefusedTag = AI.planTag(store.match) end
+            return false, nil, err
+        end
 
     elseif action.type == "endTurn" then
         store:endTurn()
@@ -239,6 +246,37 @@ end
 -- Priority rank for fight outcomes (lower = more desirable).
 local OUTCOME_RANK = { win = 1, facedown = 2, tie = 3, loss = 4, empty = 0 }
 
+-- True when at least one of the enemy's defender slots is empty.
+local function enemyHasGap(ePitch)
+    for i = 1, C.PITCH.MAX_DEFENDERS do
+        if not ePitch.defenders[i] then return true end
+    end
+    return false
+end
+
+-- Can an AI card in attackerType's slot target `target` on the enemy pitch? The same
+-- table the human gets (scenes/match.lua getAttackTargetSlots, rules.md "Who Can
+-- Attack What").
+function AI.isLegalTarget(ePitch, attackerType, target)
+    if not target then return false end
+    if attackerType == "striker" then
+        if target.type == "defender" then return true end
+        if target.type == "keeper" then return enemyHasGap(ePitch) end
+        if target.type == "midfielder" then
+            for i = 1, C.PITCH.MAX_DEFENDERS do
+                if ePitch.defenders[i] then return false end
+            end
+            return true
+        end
+        return false
+    elseif attackerType == "midfielder" then
+        return target.type == "midfielder" and ePitch.midfielder ~= nil
+    elseif attackerType == "defender" then
+        return target.type == "striker"
+    end
+    return false
+end
+
 -- Returns a single attack action, trying attackers highest-ATK first.
 -- Skips attackers that only have clearly losing targets (on medium/hard).
 function AI._planNextAttack(match, difficulty)
@@ -248,22 +286,28 @@ function AI._planNextAttack(match, difficulty)
     local midAtkBonus = Combat.midfielderCardAtkBonus(pitch)
 
     -- Collect all eligible attackers with accurate ATK (including midfielder bonus for strikers)
+    local tag = AI.planTag(match)
+    -- Ready to attack, and not already refused by the store this turn.
+    local function ready(c)
+        return c and not c.exhausted and not c.cannotActNextTurn and c.mode == "attack"
+               and c.aiRefusedTag ~= tag
+    end
     local attackers = {}
     for i = 1, C.PITCH.MAX_STRIKERS do
         local c = pitch.strikers[i]
-        if c and not c.exhausted and not c.cannotActNextTurn and c.mode == "attack" then
+        if ready(c) then
             local atk = (c.definition.stats and c.definition.stats.atk or 0) + midAtkBonus
             table.insert(attackers, { slotType = "striker", slotIndex = i, atk = atk })
         end
     end
     local mid = pitch.midfielder
-    if mid and not mid.exhausted and not mid.cannotActNextTurn and mid.mode == "attack" then
+    if ready(mid) then
         local atk = mid.definition.stats and mid.definition.stats.atk or 0
         table.insert(attackers, { slotType = "midfielder", slotIndex = 0, atk = atk })
     end
     for i = 1, C.PITCH.MAX_DEFENDERS do
         local c = pitch.defenders[i]
-        if c and not c.exhausted and not c.cannotActNextTurn and c.mode == "attack" then
+        if ready(c) then
             local atk = c.definition.stats and c.definition.stats.atk or 0
             table.insert(attackers, { slotType = "defender", slotIndex = i, atk = atk })
         end
@@ -274,14 +318,14 @@ function AI._planNextAttack(match, difficulty)
 
     -- Open goal: the human's keeper slot is empty and a defender slot is open, so a
     -- striker-slot shot scores its full ATK. Always the best move; the highest ATK shoots.
-    if not match.players.player.pitch.keeper then
-        local goal = { type = "keeper", index = 0 }
+    -- Checked from the AI's own view only (not Phases.validateAttack, which reads
+    -- match.activePlayer and so the wrong sides in the simulator's mirrored view).
+    local ePitch = match.players.player.pitch
+    if not ePitch.keeper and enemyHasGap(ePitch) then
         for _, a in ipairs(attackers) do
             if a.slotType == "striker" then
-                local aSlot = { type = "striker", index = a.slotIndex }
-                if Phases.validateAttack(match, aSlot, goal) then
-                    return { type = "attack", attackerSlot = aSlot, defenderSlot = goal }
-                end
+                return { type = "attack", attackerSlot = { type = "striker", index = a.slotIndex },
+                         defenderSlot = { type = "keeper", index = 0 } }
             end
         end
     end
@@ -289,7 +333,7 @@ function AI._planNextAttack(match, difficulty)
     -- Try each attacker until one finds a valid target
     for _, best in ipairs(attackers) do
         local target = AI._pickTarget(match, best, difficulty)
-        if target then
+        if target and AI.isLegalTarget(ePitch, best.slotType, target) then
             return {
                 type         = "attack",
                 attackerSlot = { type = best.slotType, index = best.slotIndex },
@@ -409,25 +453,9 @@ function AI._pickTarget(match, attacker, difficulty)
         return { type = defenders[1].type, index = defenders[1].index }
     end
 
-    -- No defenders left — go for midfielder or keeper
-    if dPitch.midfielder then
-        local ev = evalFight(atkStat, dPitch.midfielder)
-        if difficulty == "medium" and ev == "loss" then
-            -- Skip midfielder; try keeper directly if a defender slot is open
-            local hasGap = false
-            for i = 1, C.PITCH.MAX_DEFENDERS do if not dPitch.defenders[i] then hasGap = true; break end end
-            if hasGap and dPitch.keeper then return { type = "keeper", index = 0 } end
-            return nil
-        end
-        return { type = "midfielder", index = 0 }
-    end
-
-    if dPitch.keeper then
-        local hasGap = false
-        for i = 1, C.PITCH.MAX_DEFENDERS do if not dPitch.defenders[i] then hasGap = true; break end end
-        if hasGap then return { type = "keeper", index = 0 } end
-    end
-
+    -- Here every defender slot is filled and no fight is worth taking. The human's table
+    -- (rules.md "Who Can Attack What") then allows only the defender slots: the midfielder
+    -- needs an empty defender line and the keeper needs a gap. So no attack.
     return nil
 end
 

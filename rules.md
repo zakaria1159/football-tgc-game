@@ -123,6 +123,10 @@ margin = Attacker ATK − Defender DEF
 
 A non-midfielder card in the midfielder slot gives no bonus.
 
+On the match screen the opponent's defenders show no +DEF badge while their midfielder slot
+holds a face-down card that has not been revealed — you can't tell from the board what that
+card is. The bonus still applies in combat.
+
 ### Field combat
 
 | Result | Attacker | Defender | LP |
@@ -149,8 +153,11 @@ card attacks once per turn. A card that **covered** cannot act on its owner's ne
 | Keeper | Never attacks |
 
 The engine itself only enforces: shooting at the keeper slot needs a gap in the defender line;
-the midfielder slot never shoots; an attack on an empty striker slot is wasted. The AI follows
-the table above.
+the midfielder slot never shoots; an attack on an empty striker slot is wasted.
+
+**The AI follows the same table.** Every target it picks is one you could pick in its place
+(for example, its strikers never go for your midfielder while you have a defender on the
+pitch). If an attack it declares is refused, it does not try that attacker again that turn.
 
 ---
 
@@ -173,8 +180,8 @@ straight to the goal. A midfielder-slot card attacking an empty midfielder slot 
 ## Shots, the Keeper and the Open Goal
 
 - **Every attack that reaches the keeper is a shot.** The keeper is **never destroyed**.
-- **Shot ATK** = the shooter's ATK (+200 if your midfielder card is in attack mode) against the
-  keeper's **effective DEF**.
+- **Shot ATK** = the shooter's ATK against the keeper's **effective DEF**. A **striker-slot**
+  shooter adds +200 if your midfielder card is in attack mode; other shooters get no bonus.
 
 | Shot result | Effect |
 |---|---|
@@ -215,8 +222,8 @@ At the start of your turn, after your normal draw, compare midfield power:
   (face-down cards count); a non-midfielder card in the slot, or an empty slot, counts 0.
 
 If yours is **higher**, you **draw 1 extra card**. The ★ crown on the pitch shows who controls
-midfield (hidden while the opponent's midfielder is face-down and not revealed), and the match
-shows **"MIDFIELD CONTROL +1 CARD"**.
+midfield (hidden while the opponent's midfielder slot holds a face-down card that has not been
+revealed, whatever its type), and the match shows **"MIDFIELD CONTROL +1 CARD"**.
 
 ---
 

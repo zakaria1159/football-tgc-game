@@ -1,6 +1,6 @@
 -- Clash-portrait card renderer.
 -- Public API (unchanged contract for existing callers):
---   Card.drawPitched(pitched, x, y, opts)   opts: w, h, faceDown, canFlip, pitch, selected, target
+--   Card.drawPitched(pitched, x, y, opts)   opts: w, h, faceDown, canFlip, pitch, hideHidden, selected, target
 --   Card.showsFace(pitched)                 face-up? (attack mode or revealed; never traps) — pure
 --   Card.drawInHand(cardDef, x, y, opts)    opts: w, h, selected   → returns {x,y,w,h}
 --   Card.drawLarge(cardDef, x, y, w)        → face + info sticker, returns total h
@@ -238,11 +238,18 @@ end
 --   striker  → +ATK from an attack-mode midfielder card
 --   defender → +DEF from a defense-mode midfielder card
 --   keeper   → effective DEF (defenders + midfielder) minus base DEF
-function Card.bonuses(pitched, pitch)
+-- hideHidden: the card is the opponent's. Their unrevealed face-down midfielder is hidden,
+-- so its +DEF isn't shown (it would tell a midfielder card apart from another type).
+-- The keeper's +150 comes from any card in the slot, so it gives nothing away.
+function Card.bonuses(pitched, pitch, hideHidden)
     if not pitch then return 0, 0 end
     local st = pitched.slotType
     if st == "striker"  then return Combat.midfielderCardAtkBonus(pitch) or 0, 0 end
-    if st == "defender" then return 0, Combat.midfielderCardDefBonus(pitch) or 0 end
+    if st == "defender" then
+        local mid = pitch.midfielder
+        if hideHidden and mid and mid.mode == "defense" and not mid.revealed then return 0, 0 end
+        return 0, Combat.midfielderCardDefBonus(pitch) or 0
+    end
     if st == "keeper" then
         local base = (pitched.definition.stats and pitched.definition.stats.def) or 0
         return 0, Combat.keeperEffectiveDef(pitched, pitch) - base
@@ -272,7 +279,7 @@ function Card.drawPitched(pitched, x, y, opts)
         return
     end
 
-    local atkBonus, defBonus = Card.bonuses(pitched, opts.pitch)
+    local atkBonus, defBonus = Card.bonuses(pitched, opts.pitch, opts.hideHidden)
 
     Card.drawFace(pitched.definition, x, y, w, h, {
         atkBonus = atkBonus > 0 and atkBonus or nil,

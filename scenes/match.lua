@@ -299,8 +299,8 @@ function Match.update(dt)
         local action = aiPlan[aiActionIndex]
         if not action then aiPlan = nil; return end
 
-        if action.type == "attack" then Audio.play("attack") end
-        local done, extra = AI.executeAction(store, action)
+        local done, extra, attackErr = AI.executeAction(store, action)
+        if action.type == "attack" and not attackErr then Audio.play("attack") end
         aiActionIndex = aiActionIndex + 1
         aiTimer       = AI_STEP_DELAY
 
@@ -374,7 +374,8 @@ function Match.draw()
         if p.above then
             Zoom.drawInfoAbove(p.cardDef, p.src)
         else
-            Zoom.draw({ cardDef = p.cardDef, pitched = p.pitched, pitch = p.pitch, src = p.src, scale = zoomAnim.scale })
+            Zoom.draw({ cardDef = p.cardDef, pitched = p.pitched, pitch = p.pitch, hideHidden = p.hideHidden,
+                        src = p.src, scale = zoomAnim.scale })
         end
     end
 
@@ -447,7 +448,8 @@ function Match.hoverTarget(match)
             else card = Match.getCardInSlot(pitch, s) end
             if Hover.zoomable(s.owner, s.slotType, card) then
                 return Pitch.slotKey(s.owner, s.slotType, s.slotIndex) .. ":" .. tostring(card.definition.id),
-                    { cardDef = card.definition, pitched = card, pitch = pitch, src = s }
+                    { cardDef = card.definition, pitched = card, pitch = pitch, src = s,
+                      hideHidden = s.owner == "opponent" }
             end
             return nil
         end
@@ -884,13 +886,17 @@ function Match.mousepressed(x, y, button)
 
             -- Attack phase: declare attack against opponent slot
             if match.phase == "attack" and slot.owner == "opponent" and selectedAttackerSlot then
-                Audio.play("attack")
-                Character.setState("attacking")
                 local _, attackErr = store:declareAttack(
                     selectedAttackerSlot,
                     { type=slot.slotType, index=slot.slotIndex }
                 )
-                if attackErr then Match.flash(attackErr) end
+                if attackErr then
+                    Match.flash(attackErr)
+                else
+                    -- Only an accepted attack gets the sound and the attack pose.
+                    Audio.play("attack")
+                    Character.setState("attacking")
+                end
                 while #store.combatQueue > 0 do
                     table.insert(combatQueue, store:popCombat())
                 end
