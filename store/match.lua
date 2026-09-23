@@ -123,7 +123,8 @@ function Store:declareAttack(attackerSlot, defenderSlot)
         if not slotCard and defenderSlot.type ~= "striker" then
             local coverUsed = match.coverUsed[opponentId]
             local coverers  = Phases._eligibleCoverers(oppPitch, defenderSlot)
-            if coverUsed or #coverers == 0 then
+            local attackerCard = Phases._getSlotForPlayer(match, activeId, attackerSlot)
+            if coverUsed or #coverers == 0 or Resolver.uncoverable(attackerCard) then
                 local nextSlot = Phases._nextOccupiedLine(oppPitch, defenderSlot)
                 if nextSlot then snapDefSlot = nextSlot end
             else
@@ -137,9 +138,17 @@ function Store:declareAttack(attackerSlot, defenderSlot)
     -- Last Defender Foul is judged on the board before the attack.
     local lastDefender = activeId == "player" and self:_isLastFaceUpDefender(opponentId, defenderSlot)
 
+    -- Aerial: Offside can't be activated against this card's attacks.
+    local attackerCard = Phases._getSlotForPlayer(match, activeId, attackerSlot)
+    local aerial = Resolver.immuneToOffside(attackerCard)
+    if aerial and attackerSlot.type == "striker"
+       and self:_findTrap(match.players[opponentId].pitch, "OFFSIDE") then
+        Resolver.trigger(match, activeId, attackerCard, "AERIAL")
+    end
+
     -- ── Pre-attack trap check (OFFSIDE) ───────────────────────────────────────
     -- When AI attacks with striker: show player's OFFSIDE/MC window
-    if activeId == "opponent" and attackerSlot.type == "striker" then
+    if activeId == "opponent" and attackerSlot.type == "striker" and not aerial then
         local offsideTrap, offsideIdx = self:_findTrap(match.players.player.pitch, "OFFSIDE")
         if offsideTrap then
             local traps = { { card = offsideTrap, slotIndex = offsideIdx } }
@@ -159,7 +168,7 @@ function Store:declareAttack(attackerSlot, defenderSlot)
     end
 
     -- When player attacks with striker: AI OFFSIDE auto-fires (or player can counter with MC)
-    if activeId == "player" and attackerSlot.type == "striker" then
+    if activeId == "player" and attackerSlot.type == "striker" and not aerial then
         local aiOffside, aiOffsideIdx = self:_findTrap(match.players.opponent.pitch, "OFFSIDE")
         if aiOffside and AI.wantsOffside(match, "opponent", attackerSlot, defenderSlot) then
             local mcTrap, mcIdx = self:_findTrap(match.players.player.pitch, "MANAGERS_CHALLENGE")

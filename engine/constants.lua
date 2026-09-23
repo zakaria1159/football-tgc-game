@@ -8,6 +8,7 @@ C.MATCH = {
     HALF_ROUND_LIMIT          = 14,   -- rounds per half (halves 1 and 2); a round = one turn each
     MIDFIELD_CONTROL_DRAW     = 1,    -- extra cards drawn at turn start by the player controlling midfield
     MULLIGAN_MAX              = 3,    -- cards a player may send back at a half-time break
+    SUMMONED_CAN_ATTACK       = false, -- false: a field card summoned this turn attacks from its owner's next turn (Pace excepted)
 }
 
 C.COMBAT = {

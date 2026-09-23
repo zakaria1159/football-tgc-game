@@ -86,7 +86,7 @@ function Phases.summon(matchState, cardId, slotType, slotIndex, mode, freeSummon
 
     mode = mode or "attack"
     local pitched = State.newPitchedCard(cardDef, slotType, mode)
-    if mode == "defense" then pitched.summonedThisTurn = true end
+    pitched.summonedThisTurn = true   -- can't flip this turn; attacks next turn unless Pace (D1)
 
     if slotType == "keeper" then
         if player.pitch.keeper then
@@ -295,6 +295,31 @@ function Phases.changeMode(matchState, slotType, slotIndex)
     return true
 end
 
+-- True when a card can declare an attack right now: attack mode, not exhausted, not locked,
+-- and not summoned this turn — unless it has Pace, or C.MATCH.SUMMONED_CAN_ATTACK is on.
+-- Pure (engine, AI, scene).
+function Phases.canAttackNow(card)
+    if not card or card.exhausted or card.cannotActNextTurn or card.mode ~= "attack" then
+        return false
+    end
+    if card.summonedThisTurn and not C.MATCH.SUMMONED_CAN_ATTACK
+       and not Resolver.canAttackWhenSummoned(card) then
+        return false
+    end
+    return true
+end
+
+-- Through ball: a striker-slot attack on the keeper slot while both enemy defender slots
+-- are filled. Returns the Through ball card on the active player's pitch, or nil.
+function Phases._throughBallFor(matchState, attackerSlot, defenderSlot)
+    if defenderSlot.type ~= "keeper" or attackerSlot.type ~= "striker" then return nil end
+    local oppPitch = matchState.players[State.other(matchState.activePlayer)].pitch
+    for i = 1, C.PITCH.MAX_DEFENDERS do
+        if not oppPitch.defenders[i] then return nil end   -- a gap: a normal shot
+    end
+    return Resolver.throughBall(matchState.players[matchState.activePlayer].pitch)
+end
+
 -- Checks an attack before any trap or cover window opens. Returns true, or false + reason.
 function Phases.validateAttack(matchState, attackerSlot, defenderSlot)
     if State.isOpeningTurn(matchState) then
@@ -305,14 +330,18 @@ function Phases.validateAttack(matchState, attackerSlot, defenderSlot)
     if attacker.exhausted then return false, "attacker exhausted" end
     if attacker.cannotActNextTurn then return false, "attacker cannot act" end
     if attacker.mode ~= "attack" then return false, "card is in defense mode" end
+    if not Phases.canAttackNow(attacker) then return false, "summoned this turn — attacks next turn" end
     if defenderSlot.type == "keeper" then
-        -- Direct shots need a gap in the defender line (occupied or empty keeper slot).
+        -- Direct shots need a gap in the defender line (occupied or empty keeper slot),
+        -- unless a Through ball is on.
         local oppPitch = matchState.players[State.other(matchState.activePlayer)].pitch
         local hasGap = false
         for i = 1, C.PITCH.MAX_DEFENDERS do
             if not oppPitch.defenders[i] then hasGap = true; break end
         end
-        if not hasGap then return false, "keeper protected — clear a defender first" end
+        if not hasGap and not Phases._throughBallFor(matchState, attackerSlot, defenderSlot) then
+            return false, "keeper protected — clear a defender first"
+        end
     end
     return true
 end
@@ -328,8 +357,19 @@ function Phases.attack(matchState, attackerSlot, defenderSlot)
     State.log(matchState, T.EventType.ATTACK_DECLARED,
         { attacker = attackerSlot, defender = defenderSlot })
 
+    -- Pace: a card summoned this turn only gets this far with Pace.
+    if attacker.summonedThisTurn and not C.MATCH.SUMMONED_CAN_ATTACK then
+        Resolver.trigger(matchState, matchState.activePlayer, attacker, "PACE")
+    end
+
     -- The keeper slot (occupied or empty) is always a shot, never card-vs-card combat.
     if defenderSlot.type == "keeper" then
+        -- Through ball: shooting past a full defender line uses it up for this turn.
+        local playmaker = Phases._throughBallFor(matchState, attackerSlot, defenderSlot)
+        if playmaker then
+            matchState.players[matchState.activePlayer].pitch.throughBallUsed = true
+            Resolver.trigger(matchState, matchState.activePlayer, playmaker, "THROUGH_BALL")
+        end
         return Phases._shootAtGoal(matchState, attacker, attackerSlot, opponentId)
     end
     if defender then
@@ -401,17 +441,28 @@ function Phases._handleEmpty(matchState, attacker, attackerSlot, emptySlot, oppo
         return { outcome = "wasted", reason = "midfielder_empty_midfielder" }
     end
 
+    local oppPitch  = matchState.players[opponentId].pitch
+    local coverUsed = matchState.coverUsed[opponentId]
+    local coverers  = Phases._eligibleCoverers(oppPitch, emptySlot)
+    local canCover  = not coverUsed and #coverers > 0
+
+    -- Beat the man: its attacks into empty slots can't be covered. Checked before the Last
+    -- Defender Foul bypass so that bypass is not used up.
+    if Resolver.uncoverable(attacker) then
+        local r = Phases._advanceThrough(matchState, attacker, attackerSlot, emptySlot, opponentId)
+        if canCover then
+            Resolver.trigger(matchState, matchState.activePlayer, attacker, "BEAT_THE_MAN", nil, r)
+        end
+        return r
+    end
+
     -- LAST_DEFENDER_FOUL bypass: skip cover window for this striker advance
     if matchState.bypassCoverNextStrikerAttack and attackerSlot.type == "striker" then
         matchState.bypassCoverNextStrikerAttack = nil
         return Phases._advanceThrough(matchState, attacker, attackerSlot, emptySlot, opponentId)
     end
 
-    local oppPitch  = matchState.players[opponentId].pitch
-    local coverUsed = matchState.coverUsed[opponentId]
-    local coverers  = Phases._eligibleCoverers(oppPitch, emptySlot)
-
-    if not coverUsed and #coverers > 0 then
+    if canCover then
         return {
             outcome          = "cover_needed",
             attackerSlot     = attackerSlot,
@@ -628,6 +679,7 @@ function Phases.endTurn(matchState)
     end
 
     recoverPitch(matchState.players[activeId].pitch)
+    matchState.players[activeId].pitch.throughBallUsed = nil   -- Through ball: once per turn
 
     State.log(matchState, T.EventType.TURN_END, { turn = matchState.turn })
 
@@ -704,7 +756,7 @@ function Phases._bestStriker(pitch)
     local best, bestSlot, bestAtk = nil, nil, -1
     for i = 1, C.PITCH.MAX_STRIKERS do
         local c = pitch.strikers[i]
-        if c and not c.exhausted and not c.cannotActNextTurn and c.mode == "attack" then
+        if Phases.canAttackNow(c) then
             local atk = Combat.attackStat(c, "striker", pitch)
             if atk > bestAtk then bestAtk = atk; best = c; bestSlot = { type="striker", index=i } end
         end

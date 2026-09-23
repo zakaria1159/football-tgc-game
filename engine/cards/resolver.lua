@@ -282,4 +282,31 @@ function R.onAttackCancelled(matchState, attackerId, attacker, target)
     R.trigger(matchState, State.other(attackerId), target, "HARD_TACKLE")
 end
 
+-- ── Attack hooks ──────────────────────────────────────────────────────────────
+
+-- Pace: may attack on the turn it is summoned (attack mode only).
+function R.canAttackWhenSummoned(pitched)
+    return R.has(pitched, "PACE") and pitched.mode == "attack"
+end
+
+-- Through ball: the Through ball card on this pitch (any slot, any mode) while it is unused
+-- this turn (pitch.throughBallUsed, cleared by Phases.endTurn), else nil.
+function R.throughBall(pitch)
+    if not pitch or pitch.throughBallUsed then return nil end
+    for _, e in ipairs(R.fieldCards(pitch)) do
+        if R.has(e.card, "THROUGH_BALL") then return e.card end
+    end
+    return nil
+end
+
+-- Aerial: Offside can't be activated against this card's attacks.
+function R.immuneToOffside(attacker)
+    return R.has(attacker, "AERIAL")
+end
+
+-- Beat the man: this card's attacks into empty slots can't be covered.
+function R.uncoverable(attacker)
+    return R.has(attacker, "BEAT_THE_MAN")
+end
+
 return R

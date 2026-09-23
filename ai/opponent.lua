@@ -291,8 +291,7 @@ function AI._planNextAttack(match, difficulty)
     local tag = AI.planTag(match)
     -- Ready to attack, and not already refused by the store this turn.
     local function ready(c)
-        return c and not c.exhausted and not c.cannotActNextTurn and c.mode == "attack"
-               and c.aiRefusedTag ~= tag
+        return Phases.canAttackNow(c) and c.aiRefusedTag ~= tag
     end
     local attackers = {}
     for i = 1, C.PITCH.MAX_STRIKERS do

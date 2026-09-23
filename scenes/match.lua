@@ -16,6 +16,8 @@ local Audio         = require("ui.audio")
 local Character     = require("ui.character")
 local C             = require("engine.constants")
 local State         = require("engine.state")
+local Phases        = require("engine.phases")
+local Resolver      = require("engine.cards.resolver")
 local PauseMenu     = require("ui.menu.pause")
 local CardLibrary   = require("ui.menu.library")
 local Layout        = require("ui.match.layout")
@@ -602,7 +604,8 @@ function Match.getAttackTargetSlots(match)
         end
         local hasGap = false
         for i = 1, C.PITCH.MAX_DEFENDERS do if not oPitch.defenders[i] then hasGap = true; break end end
-        if hasGap then
+        -- Keeper: through a gap, or past a full line with a Through ball (once per turn).
+        if hasGap or Resolver.throughBall(match.players.player.pitch) then
             table.insert(slots, { slotType="keeper", slotIndex=0, owner="opponent" })
         end
 
@@ -900,8 +903,7 @@ function Match.mousepressed(x, y, button)
                     local canAttack = slot.slotType == "striker"
                                    or slot.slotType == "midfielder"
                                    or slot.slotType == "defender"
-                    if not card.exhausted and not card.cannotActNextTurn
-                       and card.mode == "attack" and canAttack then
+                    if canAttack and Phases.canAttackNow(card) then
                         if selectedAttackerSlot
                             and selectedAttackerSlot.type == slot.slotType
                             and selectedAttackerSlot.index == slot.slotIndex then
@@ -909,6 +911,8 @@ function Match.mousepressed(x, y, button)
                         else
                             selectedAttackerSlot = { type=slot.slotType, index=slot.slotIndex }
                         end
+                    elseif canAttack and card.summonedThisTurn and card.mode == "attack" then
+                        Match.flash("summoned this turn — attacks next turn")
                     end
                 end
                 return

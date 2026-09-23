@@ -157,7 +157,17 @@ S.summon = {
     { 5.2,  function() local r = fieldSlot(picked.field); if r then click(center(r)) end end },
     { 5.4,  function() move(640, 60) end },
     { 5.8,  function(c) c.snap("attack") end },
-    { 5.9,  function() if picked.field then love.keypressed("escape") end end },
+    -- Deselect the attacker, if it could be selected: a card summoned this turn attacks next
+    -- turn (Pace excepted), and Escape with nothing selected opens the pause menu.
+    { 5.9,  function()
+        if not picked.field then return end
+        for _, e in ipairs(require("engine.cards.resolver").fieldCards(store().match.players.player.pitch)) do
+            if e.card.definition.id == picked.field.id
+               and require("engine.phases").canAttackNow(e.card) then
+                love.keypressed("escape")
+            end
+        end
+    end },
     { 6.0,  function() click(center(Layout.bottom.endTurn)) end },
     { 8.25, function(c) c.snap("aiturn") end },
     { 14.25, function(c) c.snap("myturn") end },
