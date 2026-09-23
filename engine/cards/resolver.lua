@@ -309,4 +309,50 @@ function R.uncoverable(attacker)
     return R.has(attacker, "BEAT_THE_MAN")
 end
 
+-- ── Turn hooks ────────────────────────────────────────────────────────────────
+
+-- Press target on the enemy pitch: the defender-slot index of its face-up (attack or
+-- revealed) card with the highest DEF (lowest index on a tie), else its first face-down
+-- card; nil when there is none. Cards already pressed this turn are skipped.
+function R.pressTarget(oppPitch)
+    local best, bestDef = nil, -1
+    for i = 1, C.PITCH.MAX_DEFENDERS do
+        local c = oppPitch.defenders[i]
+        if c and not c.pressed and not R.hidden(c) then
+            local d = c.definition.stats and c.definition.stats.def or 0
+            if d > bestDef then best, bestDef = i, d end
+        end
+    end
+    if best then return best end
+    for i = 1, C.PITCH.MAX_DEFENDERS do
+        local c = oppPitch.defenders[i]
+        if c and not c.pressed then return i end
+    end
+    return nil
+end
+
+-- Summon hook (engine/phases.lua Phases.summon), after the card is on the pitch.
+--   Press: exhaust one enemy defender-slot card (R.pressTarget) for this turn, so it can't
+--   cover; pitched.pressed marks it and Phases.endTurn clears both flags at this turn's end.
+function R.onSummon(matchState, ownerId, pitched)
+    if not R.has(pitched, "PRESS") then return end
+    local oppPitch = matchState.players[State.other(ownerId)].pitch
+    local i = R.pressTarget(oppPitch)
+    if not i then return end
+    local target = oppPitch.defenders[i]
+    target.exhausted = true
+    target.pressed   = true
+    R.trigger(matchState, ownerId, pitched, "PRESS", { target = { type = "defender", index = i } })
+end
+
+-- Midfield control hook (engine/phases.lua _midfieldControl) for the player in control.
+--   Metronome: a Metronome card in the midfielder slot gives +1 summon this turn
+--   (matchState.bonusSummons, reset by Phases.endTurn).
+function R.onMidfieldControl(matchState, playerId)
+    local mid = matchState.players[playerId].pitch.midfielder
+    if not R.has(mid, "METRONOME") then return end
+    matchState.bonusSummons = (matchState.bonusSummons or 0) + A.METRONOME_SUMMONS
+    R.trigger(matchState, playerId, mid, "METRONOME")
+end
+
 return R

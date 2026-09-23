@@ -89,6 +89,7 @@ function State.newMatch(playerDeck, opponentDeck)
         activePlayer = "player",
         halfStarter  = "player",   -- who kicks off this half (the human, every half)
         summonCount  = 0,
+        bonusSummons = 0,          -- extra summons this turn (Metronome)
         coverUsed    = { player = false, opponent = false },
         extraTurnsLeft = 0,
         strategyPlayedThisTurn = false,
@@ -286,6 +287,7 @@ function State._resetHalf(matchState, newHalf)
     matchState.halfStarter  = "player"
     matchState.activePlayer = matchState.halfStarter
     matchState.summonCount  = 0
+    matchState.bonusSummons = 0
     matchState.coverUsed    = { player = false, opponent = false }
     matchState.strategyPlayedThisTurn = false
     matchState.bypassCoverNextStrikerAttack = nil

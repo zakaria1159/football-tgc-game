@@ -28,6 +28,7 @@ function Phases._midfieldControl(matchState)
     local myPow  = Combat.midfielderPower(matchState.players[id].pitch)
     local oppPow = Combat.midfielderPower(matchState.players[State.other(id)].pitch)
     if myPow <= oppPow then return end
+    Resolver.onMidfieldControl(matchState, id)   -- Metronome (even with an empty deck)
     -- Nothing to draw (empty deck): no bonus, and no event for the UI to announce.
     local n = math.min(C.MATCH.MIDFIELD_CONTROL_DRAW, #matchState.players[id].deck)
     if n <= 0 then return end
@@ -62,7 +63,8 @@ function Phases.summon(matchState, cardId, slotType, slotIndex, mode, freeSummon
 
     -- Summon limit (skip for trap cards which use a free set action; skip for free summons)
     if not freeSummon and slotType ~= "trap" then
-        local limit = player.nextTurnSummonLimit or C.MATCH.MAX_SUMMONS_PER_TURN
+        local limit = (player.nextTurnSummonLimit or C.MATCH.MAX_SUMMONS_PER_TURN)
+                    + (matchState.bonusSummons or 0)   -- Metronome
         if matchState.summonCount >= limit then
             return false, "summon limit reached"
         end
@@ -131,6 +133,7 @@ function Phases.summon(matchState, cardId, slotType, slotIndex, mode, freeSummon
     State.log(matchState, T.EventType.CARD_PLAYED,
         { player = matchState.activePlayer, card = cardId, slot = slotType,
           index = slotIndex, mode = mode })
+    Resolver.onSummon(matchState, matchState.activePlayer, pitched)   -- Press
     return true
 end
 
@@ -685,6 +688,9 @@ function Phases.endTurn(matchState)
 
     matchState.coverUsed[activeId]         = false
     matchState.strategyPlayedThisTurn      = false
+    matchState.bonusSummons                = 0     -- Metronome: this turn only
+    -- Press: the other side's pressed cards were exhausted for this turn only.
+    Phases._clearPressed(matchState.players[State.other(activeId)].pitch)
     -- Consume the summon limit that was set by TIME_WASTING on the previous opponent turn
     matchState.players[activeId].nextTurnSummonLimit = nil
 
@@ -728,6 +734,18 @@ function Phases._clearAttackerFlags(pitch)
     clear(pitch.midfielder)
     for i = 1, C.PITCH.MAX_DEFENDERS do clear(pitch.defenders[i]) end
     for i = 1, C.PITCH.MAX_STRIKERS  do clear(pitch.strikers[i])  end
+end
+
+-- Press: a pressed card was exhausted for the presser's turn only (it can't cover then);
+-- clear it at the end of that turn so it acts normally on its own turn.
+function Phases._clearPressed(pitch)
+    for i = 1, C.PITCH.MAX_DEFENDERS do
+        local c = pitch.defenders[i]
+        if c and c.pressed then
+            c.pressed   = nil
+            c.exhausted = false
+        end
+    end
 end
 
 -- ─── Slot helpers ─────────────────────────────────────────────────────────────

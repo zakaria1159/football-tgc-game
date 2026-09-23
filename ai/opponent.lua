@@ -115,7 +115,8 @@ function AI._planSummons(match)
     local player     = match.players.opponent
     local pitch      = player.pitch
     -- Real limit (Time Wasting sets 1) minus the summons already made this turn
-    local limit      = player.nextTurnSummonLimit or C.MATCH.MAX_SUMMONS_PER_TURN
+    local limit      = (player.nextTurnSummonLimit or C.MATCH.MAX_SUMMONS_PER_TURN)
+                     + (match.bonusSummons or 0)   -- Metronome
     local summonLeft = limit - (match.summonCount or 0)
     local actions = {}
 
