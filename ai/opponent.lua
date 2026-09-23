@@ -242,7 +242,7 @@ end
 -- Returns "win", "tie", "loss", "facedown" (unknown), or "empty".
 local function evalFight(atkStat, defCard)
     if not defCard then return "empty" end
-    if defCard.mode == "defense" then return "facedown" end
+    if defCard.mode == "defense" and not defCard.revealed then return "facedown" end
     local d = Combat.getStat(defCard, "defend")
     if atkStat > d then return "win"
     elseif atkStat == d then return "tie"
@@ -355,7 +355,7 @@ function AI._pickTarget(match, attacker, difficulty)
         local d = dPitch.defenders[i]
         if d then
             local ev  = evalFight(atkStat, d)
-            local def = d.mode ~= "defense" and Combat.getStat(d, "defend") or 0
+            local def = (d.mode ~= "defense" or d.revealed) and Combat.getStat(d, "defend") or 0
             table.insert(defenders, { type = "defender", index = i, ev = ev, def = def })
         end
     end

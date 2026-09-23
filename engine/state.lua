@@ -71,6 +71,7 @@ function State.newPitchedCard(definition, slotType, mode)
         mode              = mode or "attack",   -- "attack" or "defense"
         cannotActNextTurn = false,              -- set true after covering
         usedAsAttacker    = false,              -- set when it attacks; cleared at the start of its owner's turn
+        revealed          = false,              -- face-down card seen by both players; still in defense mode
         slotType          = slotType or definition.type,
     }
 end

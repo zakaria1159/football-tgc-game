@@ -637,7 +637,7 @@ function Store:_snapshotAttack(attackerSlot, defenderSlot)
             name      = d.name,
             type      = d.type,
             mode      = card.mode,
-            wasHidden = (card.mode == "defense"),
+            wasHidden = (card.mode == "defense" and not card.revealed),
             atk       = atkStat,
             def       = defStat,
             atkBonus  = atkBonus,

@@ -124,7 +124,7 @@ local function drawOccupied(pitched, r, owner, slotType, slotIndex, st, pitch, p
     local sa = st.selectedAttackerSlot
     local opts = {
         w = r.w, h = r.h, pitch = pitch,
-        faceDown = (owner == "opponent") and (slotType == "trap" or pitched.mode == "defense"),
+        faceDown = (owner == "opponent") and not Card.showsFace(pitched),
         canFlip  = owner == "player" and slotType ~= "trap" and st.phase == "summon"
                    and pitched.mode == "defense" and not pitched.summonedThisTurn and not pitched.modeChanged,
         selected = owner == "player" and sa ~= nil and sa.type == slotType and sa.index == slotIndex,

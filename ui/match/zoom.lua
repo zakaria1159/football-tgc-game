@@ -59,7 +59,11 @@ function Zoom.statusLines(cardDef, pitched, pitch)
         local label = pitched.slotType == "keeper" and "Effective DEF " or "DEF "
         add(label .. (st.def or 0) .. " + " .. defB .. " = " .. ((st.def or 0) + defB), "bonus")
     end
-    add(pitched.mode == "defense" and "Mode: DEFENSE (face-down)" or "Mode: ATTACK", "ink")
+    local modeText = "Mode: ATTACK"
+    if pitched.mode == "defense" then
+        modeText = pitched.revealed and "Mode: DEFENSE (revealed)" or "Mode: DEFENSE (face-down)"
+    end
+    add(modeText, "ink")
     if pitched.exhausted then add("EXHAUSTED", "bad") end
     if pitched.cannotActNextTurn then add("Cannot act next turn", "bad") end
     if (pitched.yellowCards or 0) > 0 then add("Yellow cards: " .. pitched.yellowCards, "warn") end

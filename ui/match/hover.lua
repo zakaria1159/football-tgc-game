@@ -23,4 +23,14 @@ function Hover:shown() return self.key ~= nil and self.t >= self.delay end
 
 function Hover:reset() self.key, self.t, self.payload = nil, 0, nil end
 
+-- Whether a pitched card may be zoomed. The opponent's traps and unrevealed face-down
+-- cards are hidden information; everything else (revealed cards included) is not.
+-- Pure (unit-tested).
+function Hover.zoomable(owner, slotType, card)
+    if not card then return false end
+    if owner ~= "opponent" then return true end
+    if slotType == "trap" then return false end
+    return card.mode ~= "defense" or card.revealed == true
+end
+
 return Hover

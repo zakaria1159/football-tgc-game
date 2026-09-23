@@ -412,4 +412,35 @@ S.defeat = {
     { 3.3, function(c) c.quit() end },
 }
 
+-- Revealed cards (harness-only board): revealed defense cards are face-up with a DEF marker
+-- for both sides; the opponent's unrevealed face-down card and trap stay hidden; the
+-- opponent's revealed card zooms, the hidden one doesn't; the crown reads the revealed MID.
+S.revealed = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, kickOff },
+    { 1.5, function()
+        local st = store()
+        local P, O = st.match.players.player.pitch, st.match.players.opponent.pitch
+        local function revealed(id, slotType)
+            local c = pitched(id, slotType, "defense")
+            c.revealed = true
+            return c
+        end
+        P.defenders[1] = revealed("def-the-rock", "defender")
+        P.defenders[2] = pitched("def-stopper", "defender", "defense")
+        P.midfielder   = pitched("mid-box-to-box", "midfielder", "defense")
+        O.defenders[1] = revealed("def-destroyer", "defender")
+        O.defenders[2] = pitched("def-libero", "defender", "defense")
+        O.midfielder   = revealed("mid-deep-lying-playmaker", "midfielder")
+        O.keeper       = revealed("keeper-iron-fists", "keeper")
+        O.traps[1]     = pitched("trap-offside", "trap", "defense")
+    end },
+    { 1.9, function(c) c.snap("board") end },
+    { 2.0, function() move(center(Layout.slot("opponent", "defender", 1))) end },
+    { 2.6, function(c) c.snap("zoom") end },
+    { 2.7, function() move(center(Layout.slot("opponent", "defender", 2))) end },
+    { 3.3, function(c) c.snap("hidden") end },
+    { 3.5, function(c) c.quit() end },
+}
+
 return S

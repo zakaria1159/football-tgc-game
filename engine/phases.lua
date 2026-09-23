@@ -189,6 +189,8 @@ function Phases.playStrategy(matchState, cardId, opts)
         if opts and opts.targetSlot then
             local tPitch = matchState.players[opts.targetSlot.owner].pitch
             revealedCard = Phases._getSlot(tPitch, opts.targetSlot)
+            -- Scouted face-down cards stay revealed (face-up, still in defense mode).
+            if revealedCard and revealedCard.mode == "defense" then revealedCard.revealed = true end
         end
         State.log(matchState, "strategy_played", { ability = ability, player = matchState.activePlayer })
         return { outcome = "scout_report", revealedCard = revealedCard }, nil
@@ -327,10 +329,8 @@ function Phases.resolveCover(matchState, attackerSlot, originalEmptySlot, covere
         local coverer = Phases._getSlotForPlayer(matchState, opponentId, covererSlot)
         if not coverer then return nil, "no coverer" end
 
-        -- Reveal if face-down
-        if coverer.mode == "defense" then
-            coverer.mode = "attack"  -- revealed by covering
-        end
+        -- Coverers are attack-mode cards; mark defensively in case that ever changes
+        if coverer.mode == "defense" then coverer.revealed = true end
 
         -- Covering card cannot act next turn
         coverer.cannotActNextTurn = true
@@ -460,9 +460,9 @@ function Phases._doCombat(matchState, attacker, defender, attackerSlot, defender
         atkPitch, defPitch
     )
 
-    -- Reveal face-down cards after resolution
-    if attacker.mode == "defense" then attacker.mode = "attack" end
-    if defender.mode == "defense" then defender.mode = "attack" end
+    -- A face-down defender is revealed but stays in defense mode (no battle damage,
+    -- defense bonuses kept). Attackers are always in attack mode.
+    if defender.mode == "defense" then defender.revealed = true end
 
     if result.outcome == "defender_destroyed" then
         attacker.exhausted = true
@@ -508,8 +508,8 @@ function Phases._goalAttempt(matchState, striker, keeper, attackerSlot, opponent
     local result   = Combat.resolveShot(striker, keeper, oppPitch, atkPitch, penaltyMode)
     result.attackerSlot = attackerSlot
 
-    -- Reveal a face-down keeper
-    if keeper and keeper.mode == "defense" then keeper.mode = "attack" end
+    -- A face-down keeper is revealed (it stays in defense mode)
+    if keeper and keeper.mode == "defense" then keeper.revealed = true end
 
     striker.usedAsAttacker = true
     striker.exhausted      = true

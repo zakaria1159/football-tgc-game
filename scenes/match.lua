@@ -422,7 +422,7 @@ function Match.draw()
 end
 
 -- Key + payload for the card under the mouse (nil when nothing zoomable).
--- Opponent face-down cards and traps are never zoomable (hidden information).
+-- The opponent's traps and unrevealed face-down cards are never zoomable (hidden information).
 function Match.hoverTarget(match)
     if activeCombat or activeTrapActiv or scoutReveal or pauseOpen or libraryOpen or debugLogOpen
        or match.winner or store.coverWindow or store.trapWindow then
@@ -439,7 +439,7 @@ function Match.hoverTarget(match)
             local card
             if s.slotType == "trap" then card = pitch.traps[s.slotIndex]
             else card = Match.getCardInSlot(pitch, s) end
-            if card and not (s.owner == "opponent" and card.mode == "defense") then
+            if Hover.zoomable(s.owner, s.slotType, card) then
                 return Pitch.slotKey(s.owner, s.slotType, s.slotIndex) .. ":" .. tostring(card.definition.id),
                     { cardDef = card.definition, pitched = card, pitch = pitch, src = s }
             end
@@ -500,21 +500,21 @@ function Match.getHighlightedSlots(match)
     if selectedHandCard.type == "strategy" then
         if scoutPending then
             local oppPitch = match.players.opponent.pitch
-            if oppPitch.keeper and oppPitch.keeper.mode == "defense" then
+            -- Scout targets: the opponent's face-down cards that are not revealed yet.
+            local function hidden(c) return c and c.mode == "defense" and not c.revealed end
+            if hidden(oppPitch.keeper) then
                 table.insert(slots, { slotType="keeper", slotIndex=0, owner="opponent" })
             end
-            if oppPitch.midfielder and oppPitch.midfielder.mode == "defense" then
+            if hidden(oppPitch.midfielder) then
                 table.insert(slots, { slotType="midfielder", slotIndex=0, owner="opponent" })
             end
             for i = 1, C.PITCH.MAX_DEFENDERS do
-                local c = oppPitch.defenders[i]
-                if c and c.mode == "defense" then
+                if hidden(oppPitch.defenders[i]) then
                     table.insert(slots, { slotType="defender", slotIndex=i, owner="opponent" })
                 end
             end
             for i = 1, C.PITCH.MAX_STRIKERS do
-                local c = oppPitch.strikers[i]
-                if c and c.mode == "defense" then
+                if hidden(oppPitch.strikers[i]) then
                     table.insert(slots, { slotType="striker", slotIndex=i, owner="opponent" })
                 end
             end
@@ -765,7 +765,7 @@ function Match.mousepressed(x, y, button)
             -- Scout Report: resolve target when player clicks an opponent face-down slot
             if scoutPending and slot.owner == "opponent" then
                 local oppCard = Match.getCardInSlot(match.players.opponent.pitch, slot)
-                if oppCard and oppCard.mode == "defense" then
+                if oppCard and oppCard.mode == "defense" and not oppCard.revealed then
                     local result, err = store:playStrategy(selectedHandCard.id, {
                         targetSlot = { owner = "opponent", type = slot.slotType, index = slot.slotIndex }
                     })
