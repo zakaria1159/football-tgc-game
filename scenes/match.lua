@@ -14,6 +14,7 @@ local AI            = require("ai.opponent")
 local Audio         = require("ui.audio")
 local Character     = require("ui.character")
 local C             = require("engine.constants")
+local State         = require("engine.state")
 local PauseMenu     = require("ui.menu.pause")
 local CardLibrary   = require("ui.menu.library")
 local Layout        = require("ui.match.layout")
@@ -466,6 +467,8 @@ function Match.hintText(match)
     elseif match.phase == "attack" then
         if scoutPending then
             return "SCOUT REPORT: click an opponent face-down card to reveal  ·  ESC to cancel"
+        elseif State.isOpeningTurn(match) then
+            return "First turn of the half: no attacks or shots  ·  END TURN when done"
         elseif selectedAttackerSlot then
             return "Click an opponent slot to attack  ·  ESC to cancel"
         elseif not match.strategyPlayedThisTurn then
@@ -553,6 +556,7 @@ end
 
 function Match.getAttackTargetSlots(match)
     if match.phase ~= "attack" or not selectedAttackerSlot then return {} end
+    if State.isOpeningTurn(match) then return {} end   -- first turn of the half: hint, no targets
     local slots      = {}
     local oPitch     = match.players.opponent.pitch
     local slotType   = selectedAttackerSlot.type
@@ -876,10 +880,11 @@ function Match.mousepressed(x, y, button)
             if match.phase == "attack" and slot.owner == "opponent" and selectedAttackerSlot then
                 Audio.play("attack")
                 Character.setState("attacking")
-                store:declareAttack(
+                local _, attackErr = store:declareAttack(
                     selectedAttackerSlot,
                     { type=slot.slotType, index=slot.slotIndex }
                 )
+                if attackErr then Match.flash(attackErr) end
                 while #store.combatQueue > 0 do
                     table.insert(combatQueue, store:popCombat())
                 end

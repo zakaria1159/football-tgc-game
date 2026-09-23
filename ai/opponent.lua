@@ -1,6 +1,7 @@
 local Combat = require("engine.combat")
 local C      = require("engine.constants")
 local Phases = require("engine.phases")
+local State  = require("engine.state")
 
 local AI = {}
 
@@ -255,6 +256,8 @@ local OUTCOME_RANK = { win = 1, facedown = 2, tie = 3, loss = 4, empty = 0 }
 -- Returns a single attack action, trying attackers highest-ATK first.
 -- Skips attackers that only have clearly losing targets (on medium/hard).
 function AI._planNextAttack(match, difficulty)
+    -- No attacks on the opening turn of a half (engine rule).
+    if State.isOpeningTurn(match) then return nil end
     local pitch       = match.players.opponent.pitch
     local midAtkBonus = Combat.midfielderCardAtkBonus(pitch)
 
@@ -434,12 +437,13 @@ function AI._pickStrategy(match, difficulty)
     if match.strategyPlayedThisTurn then return nil end
     local player   = match.players.opponent
     local opponent = match.players.player
+    local opening  = State.isOpeningTurn(match)   -- no shots on the opening turn
 
     for _, c in ipairs(player.hand) do
         if c.type == "strategy" then
             local ability = c.ability
 
-            if ability == "DIRECT_FREE_KICK" then
+            if ability == "DIRECT_FREE_KICK" and not opening then
                 local keeper = opponent.pitch.keeper
                 if keeper then
                     local best = Phases._bestStriker(player.pitch)
@@ -453,7 +457,7 @@ function AI._pickStrategy(match, difficulty)
                     end
                 end
 
-            elseif ability == "PENALTY" then
+            elseif ability == "PENALTY" and not opening then
                 if Phases._bestStriker(player.pitch) and opponent.pitch.keeper then
                     return { type = "playStrategy", cardId = c.id }
                 end

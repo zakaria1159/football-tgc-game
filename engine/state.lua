@@ -82,6 +82,7 @@ function State.newMatch(playerDeck, opponentDeck)
         half         = 1,
         phase        = "draw",
         activePlayer = "player",
+        halfStarter  = "player",   -- who kicks off this half (the human, every half)
         summonCount  = 0,
         coverUsed    = { player = false, opponent = false },
         extraTurnsLeft = 0,
@@ -113,6 +114,25 @@ end
 function State.opponentState(matchState)
     local opp = matchState.activePlayer == "player" and "opponent" or "player"
     return matchState.players[opp]
+end
+
+-- The other seat.
+function State.other(playerId)
+    return playerId == "player" and "opponent" or "player"
+end
+
+-- True on the first turn of a half (Extra Time included) for the player who started it:
+-- that turn has no attacks and no attacking strategies (Direct Free Kick, Penalty).
+function State.isOpeningTurn(matchState)
+    return matchState.turn == 1 and matchState.activePlayer == (matchState.halfStarter or "player")
+end
+
+-- dealerId deals `amount` LP damage to the other seat.
+function State.dealDamage(matchState, dealerId, amount)
+    local dealer = matchState.players[dealerId]
+    local victim = matchState.players[State.other(dealerId)]
+    victim.lp = victim.lp - amount
+    dealer.totalDamageDealt = dealer.totalDamageDealt + amount
 end
 
 function State.drawCard(matchState, playerId)
@@ -195,7 +215,8 @@ function State._resetHalf(matchState, newHalf)
     matchState.half         = newHalf
     matchState.turn         = 1
     matchState.phase        = "draw"
-    matchState.activePlayer = "player"
+    matchState.halfStarter  = "player"
+    matchState.activePlayer = matchState.halfStarter
     matchState.summonCount  = 0
     matchState.coverUsed    = { player = false, opponent = false }
     matchState.strategyPlayedThisTurn = false

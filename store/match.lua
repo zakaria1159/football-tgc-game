@@ -1,5 +1,6 @@
 local State  = require("engine.state")
 local Phases = require("engine.phases")
+local Combat = require("engine.combat")
 
 local Store = {}
 Store.__index = Store
@@ -79,6 +80,11 @@ function Store:declareAttack(attackerSlot, defenderSlot)
     local match      = self.match
     local activeId   = match.activePlayer
     local opponentId = activeId == "player" and "opponent" or "player"
+
+    -- Illegal attacks (first turn of a half, keeper protected, exhausted …) are refused
+    -- before any trap window can open.
+    local okAtk, whyNot = Phases.validateAttack(match, attackerSlot, defenderSlot)
+    if not okAtk then return nil, whyNot end
 
     -- Resolve real snap target: if the declared slot is empty and no cover is possible,
     -- the attacker will advance to the next occupied line — snap that card instead.
@@ -477,39 +483,31 @@ end
 
 -- Play a strategy card from hand.
 function Store:playStrategy(cardId, opts)
-    local result, err = Phases.playStrategy(self.match, cardId, opts)
-    if result then
-        -- Strategy shots (DIRECT_FREE_KICK / PENALTY) push to combat queue
-        if result.outcome == "damage" or result.outcome == "tie" or result.outcome == "save" then
-            -- Build a snap for the strategy shot
-            local activeId   = self.match.activePlayer
-            local opponentId = activeId == "player" and "opponent" or "player"
-            local keeper     = self.match.players[opponentId].pitch.keeper
-            -- Find which striker was used (the best one — already exhausted)
-            local strikerSnap = nil
-            for i = 1, require("engine.constants").PITCH.MAX_STRIKERS do
-                local c = self.match.players[activeId].pitch.strikers[i]
-                if c and c.exhausted and c.usedAsAttacker then
-                    strikerSnap = {
-                        name    = c.definition.name,
-                        type    = c.definition.type,
-                        mode    = "attack",
-                        atk     = require("engine.combat").getStat(c, "attack"),
-                        def     = require("engine.combat").getStat(c, "defend"),
-                        isKeeper = false,
-                    }
-                    break
+    local match    = self.match
+    local activeId = match.activePlayer
+
+    -- Strategy shots are snapshotted before they resolve: the best striker and the keeper
+    -- as they stand now (Penalty: the keeper's base DEF).
+    local shotSnap
+    for _, c in ipairs(match.players[activeId].hand) do
+        if c.id == cardId and (c.ability == "DIRECT_FREE_KICK" or c.ability == "PENALTY") then
+            local _, bestSlot = Phases._bestStriker(match.players[activeId].pitch)
+            if bestSlot then
+                shotSnap = self:_snapshotAttack(bestSlot, { type = "keeper", index = 0 })
+                local keeper = match.players[State.other(activeId)].pitch.keeper
+                if c.ability == "PENALTY" and keeper and shotSnap.defender then
+                    shotSnap.defender.def = Combat.getStat(keeper, "defend")
                 end
             end
-            local keeperSnap = keeper and {
-                name    = keeper.definition.name,
-                type    = keeper.definition.type,
-                mode    = keeper.mode,
-                atk     = 0,
-                def     = require("engine.combat").keeperEffectiveDef(keeper, self.match.players[opponentId].pitch),
-                isKeeper = true,
-            }
-            self:_pushCombat({ attacker = strikerSnap, defender = keeperSnap }, result)
+            break
+        end
+    end
+
+    local result, err = Phases.playStrategy(match, cardId, opts)
+    if result then
+        local o = result.outcome
+        if shotSnap and (o == "damage" or o == "tie" or o == "save") then
+            self:_pushCombat(shotSnap, result)
         end
         self:_checkHalf()
         self:_notify()

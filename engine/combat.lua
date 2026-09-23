@@ -104,13 +104,16 @@ function Combat.resolve(attacker, defender, attackerSlotType, defenderSlotType, 
     }
 end
 
--- Resolve a striker shot against the keeper.
+-- Resolve a shot at the goal. keeper == nil → open goal: a goal for the full shot ATK.
 -- penaltyMode = true → keeper uses base DEF only (no active defender/midfielder bonuses).
--- Returns { outcome, damage, margin }
+-- Returns { outcome, damage, margin, openGoal }
 -- outcome: "damage" | "tie" | "save"
 function Combat.resolveShot(striker, keeper, oppPitch, strikerPitch, penaltyMode)
     local atkStat = Combat.getStat(striker, "attack")
                   + Combat.midfielderCardAtkBonus(strikerPitch)
+    if not keeper then
+        return { outcome = "damage", damage = atkStat, margin = atkStat, openGoal = true }
+    end
     local defStat = penaltyMode
         and Combat.getStat(keeper, "defend")
         or  Combat.keeperEffectiveDef(keeper, oppPitch)
