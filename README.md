@@ -88,3 +88,8 @@ rules.md          — full engine rules reference
 - Cards are placed in slots: Striker → Midfielder → Defender → Keeper
 - Combat is always **ATK vs DEF** with LP battle damage
 - Trap cards, strategy cards, covering, and keeper DEF bonuses create decisions every turn
+
+## Credits
+
+- Fonts: [Lilita One](https://fonts.google.com/specimen/Lilita+One) by Juan Montoreano and [Nunito](https://fonts.google.com/specimen/Nunito) by Vernon Adams, Cyreal & Jacques Le Bailly — SIL Open Font License 1.1.
+- Icons: [game-icons.net](https://game-icons.net) by Delapouite (soccer-kick, goal-keeper, whistle, soccer-field, soccer-ball) and Lorc (checked-shield, on-target, wolf-trap) — CC BY 3.0.
