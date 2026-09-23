@@ -2,7 +2,7 @@
 math.randomseed(os.time())
 
 local flux      = require("lib.flux")
-local moonshine = require("lib.moonshine")
+local Theme     = require("ui.theme")
 local Home      = require("scenes.home")
 local Match     = require("scenes.match")
 local Store     = require("store.match")
@@ -12,7 +12,6 @@ local Audio     = require("ui.audio")
 local currentScene = "home"
 local store        = Store.new()
 local fonts        = {}
-local fxScene      = nil
 local camera       = { x = 0, y = 0 }
 Match._camera      = camera
 
@@ -53,10 +52,6 @@ function love.load()
     fonts.large  = Fonts.get(22)
     fonts.title  = Fonts.get(33)
     love.graphics.setFont(fonts.normal)
-    fxScene = moonshine(moonshine.effects.vignette)
-    fxScene.vignette.radius   = 0.85
-    fxScene.vignette.opacity  = 0.28
-    fxScene.vignette.softness = 0.50
     Audio.load()
     Audio.playMusic("assets/audio/music/theme_home.ogg", 0.40)
 end
@@ -67,16 +62,14 @@ function love.update(dt)
 end
 
 function love.draw()
+    love.graphics.clear(Theme.ink[1], Theme.ink[2], Theme.ink[3], 1)
     love.graphics.push()
     love.graphics.translate(math.floor(camera.x), math.floor(camera.y))
-    fxScene(function()
-        love.graphics.clear(0.051, 0.008, 0.008, 1)
-        if currentScene == "home" then
-            Home.draw()
-        elseif currentScene == "match" then
-            Match.draw()
-        end
-    end)
+    if currentScene == "home" then
+        Home.draw()
+    elseif currentScene == "match" then
+        Match.draw()
+    end
     love.graphics.pop()
 end
 
