@@ -267,4 +267,25 @@ S.combat = {
     { 8.9,  function(c) c.quit() end },
 }
 
+-- Trap activation: flash, flip, stamp, dust, full; then an opponent trap.
+local function trapRec(rec) return function() require("scenes.match").debugOverlay("trap", rec) end end
+S.trap = {
+    { 0.3,  function() math.randomseed(7) end },
+    { 0.5,  kickOff },
+    { 1.5,  trapRec({ activator = "player", trapDef = defById("trap-offside"),
+                      contextText = "The Poacher was caught offside!" }) },
+    { 1.62, function(c) c.snap("flash") end },
+    { 1.9,  function(c) c.snap("flip") end },
+    { 2.2,  function(c) c.snap("stamp") end },
+    { 2.45, function(c) c.snap("dust") end },
+    { 3.3,  function(c) c.snap("full") end },
+    { 3.4,  function() love.keypressed("space") end },
+    { 3.5,  trapRec({ activator = "opponent", trapDef = defById("trap-red-card"),
+                      contextText = "Your The Poacher was sent off!" }) },
+    { 5.4,  function(c) c.snap("opponent") end },
+    { 5.5,  function() love.keypressed("space") end },
+    { 5.8,  function(c) c.snap("dismissed") end },
+    { 6.0,  function(c) c.quit() end },
+}
+
 return S

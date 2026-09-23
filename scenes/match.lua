@@ -7,7 +7,7 @@ local Hand          = require("ui.hand")
 local Card          = require("ui.card")
 local CombatOverlay      = require("ui.overlay.combat")
 local CombatFx           = require("ui.overlay.combatfx")
-local TrapActivOverlay   = require("ui.trap_activation_overlay")
+local TrapActivOverlay   = require("ui.overlay.trapactivation")
 local CoverPrompt        = require("ui.cover_prompt")
 local AI            = require("ai.opponent")
 local Audio         = require("ui.audio")
@@ -60,7 +60,7 @@ local activeCombat = nil
 -- Trap activation overlay queue
 local trapActivQueue  = {}
 local activeTrapActiv = nil
-local trapActivAnim   = { slideY = 0, stampAlpha = 0, glowAlpha = 0, textAlpha = 0 }
+local trapActivT      = 0   -- seconds since the active trap overlay opened (ui/overlay/trapfx.lua)
 
 -- Cover / trap prompt hitboxes
 local coverHitboxes = {}
@@ -108,6 +108,7 @@ function Match.enter(matchStore, difficulty)
     combatT             = 0
     trapActivQueue      = {}
     activeTrapActiv     = nil
+    trapActivT          = 0
     coverHitboxes       = {}
     flyingCards         = {}
     drawAnims           = {}
@@ -196,19 +197,13 @@ function Match.update(dt)
     -- Dequeue a trap activation overlay (only when no combat overlay is blocking)
     if not activeCombat and not activeTrapActiv and #trapActivQueue > 0 then
         activeTrapActiv = table.remove(trapActivQueue, 1)
+        trapActivT = 0
         if activeTrapActiv.activator == "opponent" then
             Character.setState("worried")
         end
-        local H = love.graphics.getHeight()
-        trapActivAnim.slideY     = H * 0.38
-        trapActivAnim.stampAlpha = 0
-        trapActivAnim.glowAlpha  = 0
-        trapActivAnim.textAlpha  = 0
-        flux.to(trapActivAnim, 0.30, { slideY = 0 }):ease("backout")
-        flux.to(trapActivAnim, 0.28, { glowAlpha = 1 }):ease("quadout")
-        flux.to(trapActivAnim, 0.28, { stampAlpha = 1 }):delay(0.26):ease("backout")
-        flux.to(trapActivAnim, 0.28, { textAlpha = 1 }):delay(0.50):ease("quadout")
     end
+    -- Capped step, like combatT: a first-draw hitch must not skip the animation.
+    if activeTrapActiv and not activeCombat then trapActivT = trapActivT + math.min(dt, 1 / 30) end
 
     if activeCombat then return end
     if activeTrapActiv then return end
@@ -334,7 +329,7 @@ function Match.draw()
 
     -- Trap activation overlay (cinematic reveal, shown after combat if both pending)
     if activeTrapActiv then
-        TrapActivOverlay.draw(activeTrapActiv, trapActivAnim)
+        TrapActivOverlay.draw(activeTrapActiv, trapActivT)
     end
 
     -- Scout Report reveal overlay
