@@ -263,9 +263,9 @@ function Card.infoHeight(cardDef, w)
 end
 
 -- Info sticker: name, type · rarity, ability text. Returns its height.
-function Card.drawInfo(cardDef, x, y, w)
+function Card.drawInfo(cardDef, x, y, w, extraH)
     local pad = INFO_PAD
-    local h = Card.infoHeight(cardDef, w)
+    local h = Card.infoHeight(cardDef, w) + (extraH or 0)
     Draw.sticker(x, y, w, h, { r = 12, fill = Theme.white, border = 0, shadow = 4 })
     Draw.text(cardDef.name or "", x + pad, y + pad, w - pad * 2, "left",
         { size = 18, color = Theme.inkText, fit = true })
