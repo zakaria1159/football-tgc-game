@@ -2,6 +2,7 @@ local Combat = require("engine.combat")
 local C      = require("engine.constants")
 local Phases = require("engine.phases")
 local State  = require("engine.state")
+local Resolver = require("engine.cards.resolver")
 
 local AI = {}
 
@@ -89,12 +90,20 @@ function AI.decideCover(store)
     local difficulty = store.aiDifficulty or "medium"
     if difficulty == "easy" then return nil end
 
-    local atkStat = cw.attackerSnap and (cw.attackerSnap.atk or 0) or 0
+    local atkStat  = cw.attackerSnap and (cw.attackerSnap.atk or 0) or 0
+    local ownPitch = match.players[defenderId].pitch
 
+    -- Best coverer by its covering DEF (Counter-press, Last man, midfielder bonus). On equal
+    -- DEF prefer one that covering doesn't lock (Sweeper, Off the line). A keeper (Off the
+    -- line) only covers when it wins outright: a lost or tied cover would cost the keeper.
     local best, bestDef = nil, -1
     for _, cov in ipairs(cw.eligibleCoverers) do
-        local d = Combat.getStat(cov.card, "defend")
-        if d > bestDef then bestDef = d; best = cov end
+        local d = Combat.defendStat(cov.card, cov.type, ownPitch, true)
+        local usable = cov.type ~= "keeper" or d > atkStat
+        if usable and (d > bestDef or (d == bestDef and best
+                and Resolver.coverLocks(best.card) and not Resolver.coverLocks(cov.card))) then
+            best, bestDef = cov, d
+        end
     end
     if not best then return nil end
 
@@ -133,19 +142,27 @@ function AI._planSummons(match)
     local hand = {}
     for _, c in ipairs(player.hand) do table.insert(hand, c) end
 
+    -- Press: with a face-up enemy defender to press, a Press card goes first in its group.
+    local pressBoost = false
+    for i = 1, C.PITCH.MAX_DEFENDERS do
+        local d = match.players.player.pitch.defenders[i]
+        if d and (d.mode == "attack" or d.revealed) then pressBoost = true end
+    end
+    local function value(c)
+        local v = (c.type == "striker" or c.type == "midfielder")
+                  and (c.stats and c.stats.atk or 0)
+                   or (c.stats and c.stats.def or 0)
+        if pressBoost and c.keyword == "PRESS" then v = v + 10000 end
+        return v
+    end
+
     -- Priority: keeper > striker (by ATK) > midfielder (by ATK) > defender (by DEF) > others
     local typePri = { keeper=5, striker=4, midfielder=3, defender=2, trap=1, strategy=0 }
     table.sort(hand, function(a, b)
         local ap = typePri[a.type] or 0
         local bp = typePri[b.type] or 0
         if ap ~= bp then return ap > bp end
-        local aVal = (a.type == "striker" or a.type == "midfielder")
-                     and (a.stats and a.stats.atk or 0)
-                      or (a.stats and a.stats.def or 0)
-        local bVal = (b.type == "striker" or b.type == "midfielder")
-                     and (b.stats and b.stats.atk or 0)
-                      or (b.stats and b.stats.def or 0)
-        return aVal > bVal
+        return value(a) > value(b)
     end)
 
     -- Set traps first (free, no summon cost)
@@ -234,12 +251,13 @@ end
 
 -- ── Attack planning (one at a time) ──────────────────────────────────────────
 
--- Evaluate the outcome of a fight between atkStat and a defender card.
+-- Evaluate a fight between atkStat and a defending card in slotType on dPitch, with the
+-- bonuses the AI can see (Combat.defendStat, visible only).
 -- Returns "win", "tie", "loss", "facedown" (unknown), or "empty".
-local function evalFight(atkStat, defCard)
+local function evalFight(atkStat, defCard, slotType, dPitch)
     if not defCard then return "empty" end
     if defCard.mode == "defense" and not defCard.revealed then return "facedown" end
-    local d = Combat.getStat(defCard, "defend")
+    local d = Combat.defendStat(defCard, slotType, dPitch, false, true)
     if atkStat > d then return "win"
     elseif atkStat == d then return "tie"
     else return "loss"
@@ -259,12 +277,14 @@ end
 
 -- Can an AI card in attackerType's slot target `target` on the enemy pitch? The same
 -- table the human gets (scenes/match.lua getAttackTargetSlots, rules.md "Who Can
--- Attack What").
-function AI.isLegalTarget(ePitch, attackerType, target)
+-- Attack What"). ownPitch (optional): the AI's pitch, for Through ball.
+function AI.isLegalTarget(ePitch, attackerType, target, ownPitch)
     if not target then return false end
     if attackerType == "striker" then
         if target.type == "defender" then return true end
-        if target.type == "keeper" then return enemyHasGap(ePitch) end
+        if target.type == "keeper" then
+            return enemyHasGap(ePitch) or (ownPitch ~= nil and Resolver.throughBall(ownPitch) ~= nil)
+        end
         if target.type == "midfielder" then
             for i = 1, C.PITCH.MAX_DEFENDERS do
                 if ePitch.defenders[i] then return false end
@@ -285,35 +305,26 @@ end
 function AI._planNextAttack(match, difficulty)
     -- No attacks on the opening turn of a half (engine rule).
     if State.isOpeningTurn(match) then return nil end
-    local pitch       = match.players.opponent.pitch
-    local midAtkBonus = Combat.midfielderCardAtkBonus(pitch)
+    local pitch  = match.players.opponent.pitch
+    local ePitch = match.players.player.pitch
 
-    -- Collect all eligible attackers with accurate ATK (including midfielder bonus for strikers)
+    -- Every card that may attack now (Phases.canAttackNow: Pace included) and was not
+    -- already refused by the store this turn, with its fight ATK (midfielder card and
+    -- ability bonuses via Combat.attackStat).
     local tag = AI.planTag(match)
-    -- Ready to attack, and not already refused by the store this turn.
     local function ready(c)
         return Phases.canAttackNow(c) and c.aiRefusedTag ~= tag
     end
     local attackers = {}
-    for i = 1, C.PITCH.MAX_STRIKERS do
-        local c = pitch.strikers[i]
+    local function add(c, slotType, slotIndex)
         if ready(c) then
-            local atk = (c.definition.stats and c.definition.stats.atk or 0) + midAtkBonus
-            table.insert(attackers, { slotType = "striker", slotIndex = i, atk = atk })
+            table.insert(attackers, { slotType = slotType, slotIndex = slotIndex, card = c,
+                                      atk = Combat.attackStat(c, slotType, pitch, ePitch) })
         end
     end
-    local mid = pitch.midfielder
-    if ready(mid) then
-        local atk = mid.definition.stats and mid.definition.stats.atk or 0
-        table.insert(attackers, { slotType = "midfielder", slotIndex = 0, atk = atk })
-    end
-    for i = 1, C.PITCH.MAX_DEFENDERS do
-        local c = pitch.defenders[i]
-        if ready(c) then
-            local atk = c.definition.stats and c.definition.stats.atk or 0
-            table.insert(attackers, { slotType = "defender", slotIndex = i, atk = atk })
-        end
-    end
+    for i = 1, C.PITCH.MAX_STRIKERS do add(pitch.strikers[i], "striker", i) end
+    add(pitch.midfielder, "midfielder", 0)
+    for i = 1, C.PITCH.MAX_DEFENDERS do add(pitch.defenders[i], "defender", i) end
 
     if #attackers == 0 then return nil end
     table.sort(attackers, function(a, b) return a.atk > b.atk end)
@@ -322,7 +333,6 @@ function AI._planNextAttack(match, difficulty)
     -- striker-slot shot scores its full ATK. Always the best move; the highest ATK shoots.
     -- Checked from the AI's own view only (not Phases.validateAttack, which reads
     -- match.activePlayer and so the wrong sides in the simulator's mirrored view).
-    local ePitch = match.players.player.pitch
     if not ePitch.keeper and enemyHasGap(ePitch) then
         for _, a in ipairs(attackers) do
             if a.slotType == "striker" then
@@ -335,7 +345,7 @@ function AI._planNextAttack(match, difficulty)
     -- Try each attacker until one finds a valid target
     for _, best in ipairs(attackers) do
         local target = AI._pickTarget(match, best, difficulty)
-        if target and AI.isLegalTarget(ePitch, best.slotType, target) then
+        if target and AI.isLegalTarget(ePitch, best.slotType, target, pitch) then
             return {
                 type         = "attack",
                 attackerSlot = { type = best.slotType, index = best.slotIndex },
@@ -357,7 +367,7 @@ function AI._pickTarget(match, attacker, difficulty)
         for i = 1, C.PITCH.MAX_STRIKERS do
             local s = dPitch.strikers[i]
             if s then
-                local ev  = evalFight(atkStat, s)
+                local ev  = evalFight(atkStat, s, "striker", dPitch)
                 local atk = s.definition.stats and s.definition.stats.atk or 0
                 table.insert(candidates, { type = "striker", index = i, ev = ev, threatAtk = atk })
             end
@@ -388,20 +398,20 @@ function AI._pickTarget(match, attacker, difficulty)
     if attacker.slotType == "midfielder" then
         local oMid = dPitch.midfielder
         if not oMid then return nil end
-        local ev = evalFight(atkStat, oMid)
+        local ev = evalFight(atkStat, oMid, "midfielder", dPitch)
         -- Medium/Hard: don't attack if it's a face-up losing fight
         if difficulty ~= "easy" and ev == "loss" then return nil end
         return { type = "midfielder", index = 0 }
     end
 
     -- ── Strikers: advance toward keeper, clearing the path ────────────────────
-    -- Build defender list with fight evaluations
     local defenders = {}
     for i = 1, C.PITCH.MAX_DEFENDERS do
         local d = dPitch.defenders[i]
         if d then
-            local ev  = evalFight(atkStat, d)
-            local def = (d.mode ~= "defense" or d.revealed) and Combat.getStat(d, "defend") or 0
+            local ev  = evalFight(atkStat, d, "defender", dPitch)
+            local def = (d.mode ~= "defense" or d.revealed)
+                        and Combat.defendStat(d, "defender", dPitch, false, true) or 0
             table.insert(defenders, { type = "defender", index = i, ev = ev, def = def })
         end
     end
@@ -428,6 +438,21 @@ function AI._pickTarget(match, attacker, difficulty)
         if not dPitch.defenders[i] then table.insert(empty, i) end
     end
 
+    -- This attacker's shot from here: its shot ATK against the keeper's visible DEF
+    -- (an empty keeper slot always scores).
+    local function shotScores()
+        if not attacker.card then return false end
+        local k   = dPitch.keeper
+        local atk = Combat.attackStat(attacker.card, attacker.slotType, oPitch, dPitch, { keeper = k })
+        if not k then return true end
+        return atk > Combat.keeperDef(k, dPitch, false, true)
+    end
+
+    -- Beat the man: an empty slot can't be covered, so going through it is a clean shot.
+    if #empty > 0 and attacker.card and Resolver.uncoverable(attacker.card) and shotScores() then
+        return { type = "defender", index = empty[1] }
+    end
+
     if #winning > 0 then
         -- Attack the best candidate: wins sorted by lowest DEF (easiest to clear)
         table.sort(winning, function(a, b)
@@ -438,6 +463,12 @@ function AI._pickTarget(match, attacker, difficulty)
         return { type = winning[1].type, index = winning[1].index }
     end
 
+    -- Through ball: past a full defence, straight at the keeper when the shot scores.
+    if #empty == 0 and attacker.slotType == "striker" and Resolver.throughBall(oPitch)
+       and shotScores() then
+        return { type = "keeper", index = 0 }
+    end
+
     -- No winning attack — advance through an empty slot instead
     if #empty > 0 then
         return { type = "defender", index = empty[1] }
@@ -446,7 +477,6 @@ function AI._pickTarget(match, attacker, difficulty)
     -- All defender slots occupied and we'd lose every fight.
     -- Hard will still attack (force cover / trade resources); medium skips.
     if difficulty == "hard" and #defenders > 0 then
-        -- Pick tie first; otherwise take the least-bad loss (lowest DEF)
         table.sort(defenders, function(a, b)
             local ra, rb = OUTCOME_RANK[a.ev], OUTCOME_RANK[b.ev]
             if ra ~= rb then return ra < rb end
@@ -455,9 +485,7 @@ function AI._pickTarget(match, attacker, difficulty)
         return { type = defenders[1].type, index = defenders[1].index }
     end
 
-    -- Here every defender slot is filled and no fight is worth taking. The human's table
-    -- (rules.md "Who Can Attack What") then allows only the defender slots: the midfielder
-    -- needs an empty defender line and the keeper needs a gap. So no attack.
+    -- Every defender slot is filled, no fight is worth taking and no Through ball: no attack.
     return nil
 end
 
@@ -478,8 +506,8 @@ function AI._pickStrategy(match, difficulty)
                 if keeper then
                     local best = Phases._bestStriker(player.pitch)
                     if best then
-                        local atk = Combat.getStat(best, "attack")
-                                  + Combat.midfielderCardAtkBonus(player.pitch)
+                        local atk = Combat.attackStat(best, "striker", player.pitch, opponent.pitch,
+                                                      { keeper = keeper })
                         local def = Combat.keeperEffectiveDef(keeper, opponent.pitch)
                         if atk > def or difficulty == "hard" then
                             return { type = "playStrategy", cardId = c.id }
@@ -519,26 +547,30 @@ function AI.estimateAttackDamage(match, ownerId, attackerSlot, defenderSlot)
     local dPitch   = match.players[ownerId].pitch
     local attacker = Phases._getSlot(aPitch, attackerSlot)
     if not attacker then return 0 end
-    local atk = Combat.getStat(attacker, "attack")
-    if attackerSlot.type == "striker" then atk = atk + Combat.midfielderCardAtkBonus(aPitch) end
     local target = Phases._getSlot(dPitch, defenderSlot)
     if defenderSlot.type == "keeper" then
+        local atk = Combat.attackStat(attacker, attackerSlot.type, aPitch, dPitch, { keeper = target })
         if not target then return atk end
         return math.max(0, atk - Combat.keeperEffectiveDef(target, dPitch))
     end
     if not target or target.mode == "defense" then return 0 end
-    local def = Combat.getStat(target, "defend")
-    if defenderSlot.type == "defender" then def = def + Combat.midfielderCardDefBonus(dPitch) end
+    local atk = Combat.attackStat(attacker, attackerSlot.type, aPitch, dPitch)
+    local def = Combat.defendStat(target, defenderSlot.type, dPitch)
     return math.max(0, atk - def)
 end
 
--- Should ownerId's Offside cancel this striker attack? Yes when it would cost at least
--- OFFSIDE_MIN_DAMAGE LP, or when it goes into an empty slot the owner can't cover.
+-- Should ownerId's Offside cancel this striker attack? Never against Aerial (it can't be
+-- activated anyway). Yes when it would cost at least OFFSIDE_MIN_DAMAGE LP, or when it goes
+-- into an empty slot the owner can't cover (a Beat the man attack can't be covered).
 function AI.wantsOffside(match, ownerId, attackerSlot, defenderSlot)
+    local aPitch   = match.players[State.other(ownerId)].pitch
+    local attacker = Phases._getSlot(aPitch, attackerSlot)
+    if Resolver.immuneToOffside(attacker) then return false end
     local dPitch = match.players[ownerId].pitch
     if defenderSlot.type ~= "striker" and not Phases._getSlot(dPitch, defenderSlot) then
         local canCover = not match.coverUsed[ownerId]
                          and #Phases._eligibleCoverers(dPitch, defenderSlot) > 0
+                         and not Resolver.uncoverable(attacker)
         return not canCover
     end
     return AI.estimateAttackDamage(match, ownerId, attackerSlot, defenderSlot) >= AI.OFFSIDE_MIN_DAMAGE
