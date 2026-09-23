@@ -6,7 +6,7 @@ C.MATCH = {
     STARTING_LP               = 4000,
     EXTRA_TIME_TURNS          = 6,    -- Extra Time rounds
     HALF_ROUND_LIMIT          = 14,   -- rounds per half (halves 1 and 2); a round = one turn each
-    MIDFIELD_CONTROL_BONUS    = 1,   -- extra summons awarded for controlling midfield
+    MIDFIELD_CONTROL_DRAW     = 1,    -- extra cards drawn at turn start by the player controlling midfield
 }
 
 C.COMBAT = {

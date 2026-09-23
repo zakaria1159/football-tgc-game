@@ -183,7 +183,7 @@ function Match.update(dt)
         local evt = log[i]
         local p   = evt.payload or {}
         if evt.type == "midfield_control" and p.player == "player" then
-            Match.flash("MIDFIELD CONTROL +1 SUMMON", "good")
+            Match.flash("MIDFIELD CONTROL +1 CARD", "good")
         elseif evt.type == "card_drawn" then
             Match.spawnDrawAnim(p.player == "player")
         elseif evt.type == "half_end" and not match.winner then

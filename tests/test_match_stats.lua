@@ -29,13 +29,13 @@ T.test("no crown on a tie or without real midfielders", function()
     T.eq(Stats.crownOwner(match(mid("attack", 1000, 0), mid("attack", 1000, 0))), nil)
 end)
 
-T.test("summons reads the player's limit and flags the midfield bonus", function()
+T.test("summons reads the player's limit (Time Wasting) and has no midfield bonus", function()
     local m = match(nil, nil)
     m.summonCount = 1
-    m.players.player.nextTurnSummonLimit = 3
-    local used, max, bonus = Stats.summons(m)
-    T.eq(used, 1); T.eq(max, 3); T.eq(bonus, true)
+    m.players.player.nextTurnSummonLimit = 1
+    local used, max, extra = Stats.summons(m)
+    T.eq(used, 1); T.eq(max, 1); T.eq(extra, nil)
     m.players.player.nextTurnSummonLimit = nil
-    used, max, bonus = Stats.summons(m)
-    T.eq(used, 1); T.eq(max, 2); T.eq(bonus, false)
+    used, max = Stats.summons(m)
+    T.eq(used, 1); T.eq(max, 2)
 end)

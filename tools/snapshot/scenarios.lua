@@ -177,7 +177,7 @@ S.juice = {
     end },
     { 1.85, function(c) c.snap("drain") end },
     { 2.9,  function(c) c.snap("settled") end },
-    { 3.0,  function() require("scenes.match").flash("MIDFIELD CONTROL +1 SUMMON", "good") end },
+    { 3.0,  function() require("scenes.match").flash("MIDFIELD CONTROL +1 CARD", "good") end },
     { 3.4,  function(c) c.snap("banner") end },
     { 3.5,  function() require("scenes.match").spawnDrawAnim(true) end },
     { 3.7,  function(c) c.snap("drawanim") end },
@@ -441,6 +441,24 @@ S.revealed = {
     { 2.7, function() move(center(Layout.slot("opponent", "defender", 2))) end },
     { 3.3, function(c) c.snap("hidden") end },
     { 3.5, function(c) c.quit() end },
+}
+
+-- Midfield control through the real engine (harness-only board): your Box-to-Box (ATK 1800)
+-- outpowers their Deep-Lying Playmaker (ATK 1500); re-running your draw phase on turn 2
+-- draws the normal card plus the midfield card, with the banner and the toast.
+S.midfield = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, kickOff },
+    { 1.5, function()
+        local m = store().match
+        m.players.player.pitch.midfielder   = pitched("mid-box-to-box", "midfielder")
+        m.players.opponent.pitch.midfielder = pitched("mid-deep-lying-playmaker", "midfielder")
+        m.turn  = 2
+        m.phase = "draw"      -- scenes/match.lua runs store:drawPhase() on the next update
+    end },
+    { 1.9, function(c) c.snap("banner") end },
+    { 2.6, function(c) c.snap("toast") end },
+    { 2.8, function(c) c.quit() end },
 }
 
 return S

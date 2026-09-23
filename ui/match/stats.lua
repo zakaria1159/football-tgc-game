@@ -20,11 +20,12 @@ function Stats.crownOwner(match)
     return nil
 end
 
--- used, max, bonus — same numbers the old HUD showed ("SUMMONS used / max ★").
+-- used, max — "SUMMONS used / max". max is 2, or 1 under the opponent's Time Wasting.
+-- Midfield control gives a card, not a summon, so there is no bonus flag.
 function Stats.summons(match)
     local used = match.summonCount or 0
     local max  = match.players.player.nextTurnSummonLimit or C.MATCH.MAX_SUMMONS_PER_TURN
-    return used, max, max > C.MATCH.MAX_SUMMONS_PER_TURN
+    return used, max
 end
 
 return Stats

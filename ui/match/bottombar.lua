@@ -54,12 +54,10 @@ end
 
 local function drawSummons(match)
     local r = Layout.bottom.summons
-    local used, max, bonus = Stats.summons(match)
+    local used, max = Stats.summons(match)
     Draw.pill(r.x, r.y, r.w, r.h, "SUMMONS " .. used .. " / " .. max, {
-        fill = bonus and Theme.grad.bonus or Theme.white,
-        textColor = bonus and Theme.white or Theme.inkText, size = 18,
+        fill = Theme.white, textColor = Theme.inkText, size = 18,
     })
-    if bonus then Draw.star(r.x + r.w - 22, r.y + r.h / 2, 11, Theme.highlight.selected) end
 end
 
 local function drawToggle(mode)

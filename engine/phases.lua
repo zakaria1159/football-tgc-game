@@ -8,11 +8,33 @@ local Phases = {}
 -- ─── DRAW ────────────────────────────────────────────────────────────────────
 
 function Phases.draw(matchState)
-    if matchState.turn == 1 and matchState.half ~= "extra" then return end
-    local card = State.drawCard(matchState, matchState.activePlayer)
-    if card then
-        State.log(matchState, T.EventType.CARD_DRAWN,
-            { player = matchState.activePlayer, card = card.id })
+    local id = matchState.activePlayer
+    -- No normal draw on turn 1 of halves 1 and 2 (Extra Time draws on turn 1).
+    if not (matchState.turn == 1 and matchState.half ~= "extra") then
+        local card = State.drawCard(matchState, id)
+        if card then
+            State.log(matchState, T.EventType.CARD_DRAWN, { player = id, card = card.id })
+        end
+    end
+    Phases._midfieldControl(matchState)
+end
+
+-- Midfield control: a player whose midfielder-type card has more power than the
+-- opponent's (ATK in attack mode, DEF in defense mode; face-down cards count) draws
+-- C.MATCH.MIDFIELD_CONTROL_DRAW extra card(s) after the normal draw.
+function Phases._midfieldControl(matchState)
+    local id     = matchState.activePlayer
+    local myPow  = Combat.midfielderPower(matchState.players[id].pitch)
+    local oppPow = Combat.midfielderPower(matchState.players[State.other(id)].pitch)
+    if myPow <= oppPow then return end
+    State.log(matchState, T.EventType.MIDFIELD_CONTROL,
+        { player = id, myPow = myPow, oppPow = oppPow, bonus = "draw" })
+    for _ = 1, C.MATCH.MIDFIELD_CONTROL_DRAW do
+        local card = State.drawCard(matchState, id)
+        if card then
+            State.log(matchState, T.EventType.CARD_DRAWN,
+                { player = id, card = card.id, source = "midfield_control" })
+        end
     end
 end
 
@@ -588,22 +610,6 @@ function Phases.endTurn(matchState)
 
     matchState.phase       = "draw"
     matchState.summonCount = 0
-
-    -- Midfield control: award extra summon to new active player if their midfielder
-    -- outpowers the opponent's. Only actual midfielder-type cards count (Option B).
-    local newId  = matchState.activePlayer
-    local oppId  = newId == "player" and "opponent" or "player"
-    local myPow  = Combat.midfielderPower(matchState.players[newId].pitch)
-    local oppPow = Combat.midfielderPower(matchState.players[oppId].pitch)
-    if myPow > oppPow then
-        local base = matchState.players[newId].nextTurnSummonLimit or C.MATCH.MAX_SUMMONS_PER_TURN
-        matchState.players[newId].nextTurnSummonLimit = base + C.MATCH.MIDFIELD_CONTROL_BONUS
-        State.log(matchState, T.EventType.MIDFIELD_CONTROL, {
-            player = newId,
-            myPow  = myPow,
-            oppPow = oppPow,
-        })
-    end
 
     -- Check half end again after the round count moved on (half limit, Extra Time countdown)
     halfWinner, reason = State.checkHalfEnd(matchState)
