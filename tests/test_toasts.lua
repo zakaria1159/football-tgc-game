@@ -1,0 +1,47 @@
+local T      = require("tests.t")
+local Toasts = require("ui.match.toasts")
+
+T.test("push keeps the newest first and at most 3", function()
+    local q = Toasts.new()
+    for _, s in ipairs({ "a", "b", "c", "d" }) do q:push(s, "info") end
+    T.eq(#q.items, 3); T.eq(q.items[1].text, "d"); T.eq(q.items[3].text, "b")
+end)
+
+T.test("toasts expire after LIFE seconds", function()
+    local q = Toasts.new()
+    q:push("x")
+    q:update(Toasts.LIFE - 0.1); T.eq(#q.items, 1)
+    q:update(0.2);               T.eq(#q.items, 0)
+end)
+
+T.test("pose slides in, holds, then fades", function()
+    local s, a = Toasts.pose(0);   T.near(s, -40); T.near(a, 0)
+    s, a = Toasts.pose(1);         T.near(s, 0);   T.near(a, 1)
+    s, a = Toasts.pose(Toasts.LIFE - Toasts.FADE / 2); T.near(a, 0.5)
+end)
+
+T.test("lp_damage is good when you deal it, bad when you take it", function()
+    local txt, kind = Toasts.describe({ type = "lp_damage", payload = { dealer = "player", damage = 400 } })
+    T.eq(txt, "You dealt 400 LP"); T.eq(kind, "good")
+    txt, kind = Toasts.describe({ type = "lp_damage", payload = { dealer = "opponent", damage = 400 } })
+    T.eq(txt, "You took 400 LP"); T.eq(kind, "bad")
+end)
+
+T.test("card_drawn and turn_end are skipped", function()
+    T.eq(Toasts.describe({ type = "card_drawn", payload = { player = "player" } }), nil)
+    T.eq(Toasts.describe({ type = "turn_end", payload = { turn = 2 } }), nil)
+end)
+
+T.test("traps, midfield control and summons", function()
+    local _, kind = Toasts.describe({ type = "trap_activated", payload = { player = "opponent", trap = "trap-offside" } })
+    T.eq(kind, "trap")
+    _, kind = Toasts.describe({ type = "midfield_control", payload = { player = "opponent" } })
+    T.eq(kind, "bad")
+    local txt = Toasts.describe({ type = "card_played", payload = { player = "player", slot = "striker" } })
+    T.eq(txt, "You summoned a STRIKER")
+end)
+
+T.test("unknown events fall back to readable text", function()
+    local txt, kind = Toasts.describe({ type = "foo_bar" })
+    T.eq(txt, "foo bar"); T.eq(kind, "info")
+end)
