@@ -17,10 +17,24 @@ Zoom.LINE_H       = 18
 -- src: rect of the hovered card. Returns { cardX, cardY, infoX, infoY }.
 -- Right of the source if it fits ([src][card][info]); else left ([info][card][src]);
 -- else clamped to the screen.
-function Zoom.place(src, infoH, W, H)
+-- opts.above == true: place the whole [info][card] group above the source, horizontally
+-- centred on it, instead of beside it (used for hand cards so the zoom doesn't cover the
+-- rest of the hand and the bottom controls).
+function Zoom.place(src, infoH, W, H, opts)
     local m  = Zoom.MARGIN
     local tw = Zoom.W + Zoom.GAP + Zoom.INFO_W
     local cardX, infoX
+
+    if opts and opts.above then
+        local x = src.x + src.w / 2 - tw / 2
+        x = math.max(m, math.min(W - m - tw, x))
+        infoX = x
+        cardX = x + Zoom.INFO_W + Zoom.GAP
+        local cardY = src.y - Zoom.GAP - Zoom.BOTTOM_OVER - Zoom.H
+        cardY = math.max(m + Zoom.TOP_OVER, cardY)
+        return { cardX = cardX, cardY = cardY, infoX = infoX, infoY = cardY }
+    end
+
     local rightX = src.x + src.w + Zoom.GAP
     if rightX + tw <= W - m then
         cardX = rightX
@@ -73,12 +87,12 @@ local LINE_COLORS = {
     ink = Theme.inkText, bonus = Theme.hex("16a34a"), bad = Theme.hex("e0243a"), warn = Theme.hex("c98a00"),
 }
 
--- z = { cardDef, pitched (optional), pitch (optional), src = rect, scale (pop-in) }
+-- z = { cardDef, pitched (optional), pitch (optional), src = rect, scale (pop-in), above (optional) }
 function Zoom.draw(z)
     local lines = Zoom.statusLines(z.cardDef, z.pitched, z.pitch)
     local baseH = Card.infoHeight(z.cardDef, Zoom.INFO_W)
     local infoH = Zoom.infoHeight(z.cardDef, lines)
-    local p = Zoom.place(z.src, infoH, Layout.W, Layout.H)
+    local p = Zoom.place(z.src, infoH, Layout.W, Layout.H, { above = z.above })
     local s = z.scale or 1
     local ox, oy = p.cardX + Zoom.W / 2, p.cardY + Zoom.H / 2
 

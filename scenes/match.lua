@@ -394,7 +394,7 @@ function Match.draw()
     -- Card zoom
     if zoomKey and hover.payload then
         local p = hover.payload
-        Zoom.draw({ cardDef = p.cardDef, pitched = p.pitched, pitch = p.pitch, src = p.src, scale = zoomAnim.scale })
+        Zoom.draw({ cardDef = p.cardDef, pitched = p.pitched, pitch = p.pitch, src = p.src, scale = zoomAnim.scale, above = p.above })
     end
 
     -- Flash banner
@@ -470,7 +470,7 @@ function Match.hoverTarget(match)
     end
     local def, i, r = Hand.hit(handHit, mouseX, mouseY)
     if def then
-        return "hand:" .. i .. ":" .. tostring(def.id), { cardDef = def, src = r }
+        return "hand:" .. i .. ":" .. tostring(def.id), { cardDef = def, src = r, above = true }
     end
     for k = #pitchHitboxes, 1, -1 do
         local s = pitchHitboxes[k]

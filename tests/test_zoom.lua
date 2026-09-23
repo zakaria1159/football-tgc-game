@@ -17,6 +17,13 @@ T.test("zoom clamps vertically, leaving room for tag and badges", function()
     T.eq(Zoom.place({ x = 100, y = 0, w = 10, h = 10 }, 200, 1280, 800).cardY, 32)
 end)
 
+T.test("zoom goes above the source, centred, when opts.above is set", function()
+    local p = Zoom.place({ x = 640, y = 600, w = 120, h = 165 }, 200, 1280, 800, { above = true })
+    T.eq(p.infoX, 418); T.eq(p.cardX, 682)
+    T.eq(p.cardY, 126); T.eq(p.infoY, 126)
+    T.ok(p.cardY + Zoom.H + Zoom.BOTTOM_OVER <= 600)
+end)
+
 T.test("zoom clamps horizontally when neither side fits", function()
     local p = Zoom.place({ x = 400, y = 300, w = 500, h = 100 }, 200, 1280, 800)
     T.eq(p.infoX, 8); T.eq(p.cardX, 272)
