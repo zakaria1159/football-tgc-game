@@ -6,34 +6,21 @@ local Card   = require("ui.card")
 local Layout = require("ui.match.layout")
 
 local Zoom = {}
-Zoom.W, Zoom.H    = 300, 410   -- Theme.cardSize.zoom
+Zoom.W, Zoom.H    = 200, 274   -- Theme.cardSize.zoom
 Zoom.INFO_W       = 250
 Zoom.GAP          = 14
 Zoom.MARGIN       = 8
-Zoom.TOP_OVER     = 24         -- type tag sticks out above the card
-Zoom.BOTTOM_OVER  = 50         -- ATK/DEF badges stick out below
+Zoom.TOP_OVER     = 15         -- type tag sticks out above the card
+Zoom.BOTTOM_OVER  = 30         -- ATK/DEF badges stick out below
 Zoom.LINE_H       = 18
 
 -- src: rect of the hovered card. Returns { cardX, cardY, infoX, infoY }.
 -- Right of the source if it fits ([src][card][info]); else left ([info][card][src]);
 -- else clamped to the screen.
--- opts.above == true: place the whole [info][card] group above the source, horizontally
--- centred on it, instead of beside it (used for hand cards so the zoom doesn't cover the
--- rest of the hand and the bottom controls).
-function Zoom.place(src, infoH, W, H, opts)
+function Zoom.place(src, infoH, W, H)
     local m  = Zoom.MARGIN
     local tw = Zoom.W + Zoom.GAP + Zoom.INFO_W
     local cardX, infoX
-
-    if opts and opts.above then
-        local x = src.x + src.w / 2 - tw / 2
-        x = math.max(m, math.min(W - m - tw, x))
-        infoX = x
-        cardX = x + Zoom.INFO_W + Zoom.GAP
-        local cardY = src.y - Zoom.GAP - Zoom.BOTTOM_OVER - Zoom.H
-        cardY = math.max(m + Zoom.TOP_OVER, cardY)
-        return { cardX = cardX, cardY = cardY, infoX = infoX, infoY = cardY }
-    end
 
     local rightX = src.x + src.w + Zoom.GAP
     if rightX + tw <= W - m then
@@ -83,16 +70,33 @@ function Zoom.infoHeight(cardDef, lines)
     return Card.infoHeight(cardDef, Zoom.INFO_W) + (#lines > 0 and (#lines * Zoom.LINE_H + 6) or 0)
 end
 
+-- Info sticker only, centred above src (used for hand cards). Pure placement,
+-- unit-tested. Returns x, y for Card.drawInfo(cardDef, x, y, Zoom.INFO_W).
+function Zoom.placeInfoAbove(src, infoH, W)
+    local m = Zoom.MARGIN
+    local x = src.x + src.w / 2 - Zoom.INFO_W / 2
+    x = math.max(m, math.min(W - m - Zoom.INFO_W, x))
+    local y = math.max(m, src.y - Zoom.GAP - infoH)
+    return x, y
+end
+
+-- Draw just the info sticker above a hovered hand card (no zoom card).
+function Zoom.drawInfoAbove(cardDef, src)
+    local infoH = Card.infoHeight(cardDef, Zoom.INFO_W)
+    local x, y = Zoom.placeInfoAbove(src, infoH, Layout.W)
+    Card.drawInfo(cardDef, x, y, Zoom.INFO_W)
+end
+
 local LINE_COLORS = {
     ink = Theme.inkText, bonus = Theme.hex("16a34a"), bad = Theme.hex("e0243a"), warn = Theme.hex("c98a00"),
 }
 
--- z = { cardDef, pitched (optional), pitch (optional), src = rect, scale (pop-in), above (optional) }
+-- z = { cardDef, pitched (optional), pitch (optional), src = rect, scale (pop-in) }
 function Zoom.draw(z)
     local lines = Zoom.statusLines(z.cardDef, z.pitched, z.pitch)
     local baseH = Card.infoHeight(z.cardDef, Zoom.INFO_W)
     local infoH = Zoom.infoHeight(z.cardDef, lines)
-    local p = Zoom.place(z.src, infoH, Layout.W, Layout.H, { above = z.above })
+    local p = Zoom.place(z.src, infoH, Layout.W, Layout.H)
     local s = z.scale or 1
     local ox, oy = p.cardX + Zoom.W / 2, p.cardY + Zoom.H / 2
 

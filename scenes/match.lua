@@ -334,7 +334,11 @@ function Match.draw()
     -- Card zoom
     if zoomKey and hover.payload then
         local p = hover.payload
-        Zoom.draw({ cardDef = p.cardDef, pitched = p.pitched, pitch = p.pitch, src = p.src, scale = zoomAnim.scale, above = p.above })
+        if p.above then
+            Zoom.drawInfoAbove(p.cardDef, p.src)
+        else
+            Zoom.draw({ cardDef = p.cardDef, pitched = p.pitched, pitch = p.pitch, src = p.src, scale = zoomAnim.scale })
+        end
     end
 
     -- Flash banner

@@ -321,12 +321,7 @@ end
 function Draw.ribbon(cx, y, w, h, text, opts)
     opts = opts or {}
     local x = cx - w / 2
-    local notch = h * 0.35
     local a = opts.alpha or 1
-    -- tails
-    Draw.setColor(Theme.ink, a)
-    love.graphics.polygon("fill", x - notch, y + h * 0.25, x + notch, y + h * 0.25, x + notch, y + h * 1.15, x - notch, y + h * 1.15, x, y + h * 0.7)
-    love.graphics.polygon("fill", x + w + notch, y + h * 0.25, x + w - notch, y + h * 0.25, x + w - notch, y + h * 1.15, x + w + notch, y + h * 1.15, x + w, y + h * 0.7)
     Draw.sticker(x, y, w, h, { r = h * 0.2, fill = opts.fill or Theme.white, border = 3, shadow = 4, alpha = a })
     local size = opts.size or math.floor(h * 0.6)
     Draw.text(text, x + 8, y + (h - size) / 2 - size * 0.08, w - 16, "center", {

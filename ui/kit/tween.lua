@@ -11,8 +11,8 @@ end
 
 -- Squash then spring back: obj.sx / obj.sy → 1.
 function Tween.squash(obj, dur)
-    obj.sx, obj.sy = 1.18, 0.82
-    return flux.to(obj, dur or 0.3, { sx = 1, sy = 1 }):ease("elasticout")
+    obj.sx, obj.sy = 1.22, 0.80
+    return flux.to(obj, dur or 0.35, { sx = 1, sy = 1 }):ease("backout")
 end
 
 -- Kick obj[key] by `amount` then settle back to 0.
