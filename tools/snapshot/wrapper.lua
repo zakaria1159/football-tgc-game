@@ -29,8 +29,10 @@ local t, i = 0, 1
 local baseUpdate = love.update
 function love.update(dt)
     if baseUpdate then baseUpdate(dt) end
-    t = t + dt
-    while steps[i] and t >= steps[i][1] do
+    -- Stall-proof: the script clock advances at most 1/30 s per frame and at most one
+    -- step runs per frame, so a machine hiccup can't fire several steps in one frame.
+    t = t + math.min(dt, 1 / 30)
+    if steps[i] and t >= steps[i][1] then
         steps[i][2](ctx)
         i = i + 1
     end
