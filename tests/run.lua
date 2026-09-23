@@ -11,6 +11,10 @@ table.sort(files)
 
 for _, path in ipairs(files) do
     local mod = path:gsub("%.lua$", ""):gsub("/", ".")
-    require(mod)
+    local ok, err = pcall(require, mod)
+    if not ok then
+        T.failed = T.failed + 1
+        print("FAIL  " .. path .. " (load error)\n      " .. tostring(err))
+    end
 end
 T.report()

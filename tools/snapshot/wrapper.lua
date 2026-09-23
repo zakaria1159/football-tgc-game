@@ -1,5 +1,10 @@
 -- Dev-only snapshot driver. snap.sh copies the project to a temp dir, renames the
 -- real main.lua to real_main.lua and installs this file as main.lua.
+function love.errorhandler(msg)
+    io.stderr:write(debug.traceback(tostring(msg), 2) .. "\n")
+    os.exit(1)
+end
+
 require("real_main")
 
 local scenarios = require("tools.snapshot.scenarios")
@@ -17,6 +22,9 @@ function ctx.snap(label)
 end
 function ctx.quit() love.event.quit() end
 
+local lastStepTime = steps[#steps] and steps[#steps][1] or 0
+local timedOut = false
+
 local t, i = 0, 1
 local baseUpdate = love.update
 function love.update(dt)
@@ -25,5 +33,12 @@ function love.update(dt)
     while steps[i] and t >= steps[i][1] do
         steps[i][2](ctx)
         i = i + 1
+    end
+    if not timedOut and (i > #steps or t > lastStepTime + 5) then
+        timedOut = true
+        if i <= #steps then
+            io.stderr:write("snapshot: scenario timed out without calling quit()\n")
+        end
+        love.event.quit()
     end
 end

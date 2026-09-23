@@ -7,11 +7,11 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SCEN="${1:?usage: snap.sh <scenario> [outdir]}"
 OUT="${2:-$ROOT/.snapshots}"
 TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
 rsync -a --exclude .git --exclude .snapshots --exclude .superpowers "$ROOT/" "$TMP/"
 mv "$TMP/main.lua" "$TMP/real_main.lua"
 cp "$ROOT/tools/snapshot/wrapper.lua" "$TMP/main.lua"
 mkdir -p "$OUT"
 rm -f "$OUT/${SCEN}"_*.png
 SNAP_OUT="$OUT" SNAP_SCENARIO="$SCEN" love "$TMP"
-rm -rf "$TMP"
 ls "$OUT/${SCEN}"_*.png
