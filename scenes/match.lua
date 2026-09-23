@@ -8,7 +8,8 @@ local Card          = require("ui.card")
 local CombatOverlay      = require("ui.overlay.combat")
 local CombatFx           = require("ui.overlay.combatfx")
 local TrapActivOverlay   = require("ui.overlay.trapactivation")
-local CoverPrompt        = require("ui.cover_prompt")
+local Prompts            = require("ui.overlay.prompts")
+local PromptPanel        = require("ui.overlay.promptpanel")
 local AI            = require("ai.opponent")
 local Audio         = require("ui.audio")
 local Character     = require("ui.character")
@@ -65,6 +66,8 @@ local trapActivT      = 0   -- seconds since the active trap overlay opened (ui/
 -- Cover / trap prompt hitboxes
 local coverHitboxes = {}
 local trapHitboxes  = {}
+local promptAnim    = { y = 0 }   -- bottom prompt panel slide offset
+local promptWindow  = nil         -- the cover/trap window the panel is showing (slide-in trigger)
 
 -- Flux animations
 local flyingCards = {}
@@ -114,6 +117,8 @@ function Match.enter(matchStore, difficulty)
     drawAnims           = {}
     pitchAnims          = { hidden = {}, pop = {} }
     trapHitboxes        = {}
+    promptAnim          = { y = 0 }
+    promptWindow        = nil
     handHit             = { cards = {}, order = {}, defs = {} }
     aiPlan              = nil
     aiActionIndex       = 0
@@ -176,6 +181,16 @@ function Match.update(dt)
     if scoutReveal then
         scoutReveal.timer = scoutReveal.timer - dt
         if scoutReveal.timer <= 0 then scoutReveal = nil end
+    end
+
+    -- Bottom prompt panel slides up whenever a new cover/trap window opens for the player
+    local win = (store.coverWindow and match.activePlayer == "opponent" and store.coverWindow) or store.trapWindow
+    if win ~= promptWindow then
+        promptWindow = win
+        if win then
+            promptAnim.y = PromptPanel.SLIDE
+            flux.to(promptAnim, 0.32, { y = 0 }):ease("backout")
+        end
     end
 
     -- Combat overlay: dequeue, then advance its timeline (ui/overlay/combatfx.lua).
@@ -285,8 +300,11 @@ function Match.draw()
     pitchHitboxes = Pitch.draw(match, interactionState, pitchAnims)
     TopBar.draw(match)
     BottomBar.draw(match, { mode = selectedMode, toasts = toasts, hint = Match.hintText(match) })
+    -- The prompt panel covers the hand: no dock magnification poking out above it.
+    local hmx, hmy = handMouseX, handMouseY
+    if promptWindow then hmx, hmy = nil, nil end
     handHit = Hand.draw(match.players.player.hand,
-        selectedHandCard and selectedHandCard.id or nil, handMouseX, handMouseY)
+        selectedHandCard and selectedHandCard.id or nil, hmx, hmy)
 
     -- Confetti
     Confetti.draw()
@@ -339,15 +357,14 @@ function Match.draw()
 
     -- Cover prompt (player defending against opponent attack)
     if store.coverWindow and not activeCombat and match.activePlayer == "opponent" then
-        CoverPrompt.draw(store.coverWindow)
-        coverHitboxes = CoverPrompt.getHitboxes(store.coverWindow)
+        coverHitboxes = Prompts.drawCover(store.coverWindow, promptAnim.y, mouseX, mouseY)
     else
         coverHitboxes = {}
     end
 
     -- Trap window (player decides whether to activate their set trap)
     if store.trapWindow and not activeCombat then
-        trapHitboxes = Match.drawTrapWindow(store.trapWindow)
+        trapHitboxes = Prompts.drawTrapWindow(store.trapWindow, promptAnim.y, mouseX, mouseY)
     else
         trapHitboxes = {}
     end
@@ -395,7 +412,7 @@ end
 
 -- One-line instruction shown between the pitch and the hand.
 function Match.hintText(match)
-    if activeCombat or (store and store.coverWindow) then return "" end
+    if activeCombat or (store and (store.coverWindow or store.trapWindow)) then return "" end
     if match.activePlayer == "opponent" then return "Opponent is thinking..." end
     if match.phase == "summon" then
         if selectedHandCard and selectedHandCard.ability == "SUBSTITUTION" then
@@ -456,101 +473,6 @@ function Match.drawWinScreen(match)
         love.graphics.setColor(0.50, 0.50, 0.58, 1)
         love.graphics.printf("R to restart  |  ESC for menu", 0, H * 0.65, W, "center")
     end)
-end
-
--- ── Trap Window ──────────────────────────────────────────────────────────────
-
-function Match.drawTrapWindow(tw)
-    local W, H = love.graphics.getWidth(), love.graphics.getHeight()
-    local panW = 500
-    local rows = #tw.traps
-    local panH = 80 + rows * 58 + 50
-    local panX = (W - panW) / 2
-    local panY = H / 2 - panH / 2
-
-    -- Backdrop
-    love.graphics.setColor(0, 0, 0, 0.70)
-    love.graphics.rectangle("fill", 0, 0, W, H)
-
-    -- Panel
-    love.graphics.setColor(0.07, 0.02, 0.14, 1)
-    love.graphics.rectangle("fill", panX, panY, panW, panH, 10)
-    love.graphics.setColor(0.60, 0.25, 1.00, 0.80)
-    love.graphics.setLineWidth(2)
-    love.graphics.rectangle("line", panX, panY, panW, panH, 10)
-    love.graphics.setLineWidth(1)
-
-    local label = tw.type == "pre_attack"          and "TRAP WINDOW  ·  STRIKER ATTACKS"
-               or tw.type == "post_destroy"         and "TRAP WINDOW  ·  YOUR CARD DESTROYED"
-               or tw.type == "post_damage"          and "TRAP WINDOW  ·  OPPONENT SCORED"
-               or tw.type == "post_last_defender"   and "TRAP WINDOW  ·  LAST DEFENDER"
-               or tw.type == "counter_offside"      and "COUNTER TRAP  ·  OFFSIDE INCOMING"
-               or tw.type == "counter_red_card"     and "COUNTER TRAP  ·  RED CARD INCOMING"
-               or "TRAP WINDOW"
-    Fonts.with(14, function()
-        love.graphics.setColor(0.78, 0.50, 1.00, 1)
-        love.graphics.printf(label, panX, panY + 12, panW, "center")
-    end)
-
-    -- Attack summary
-    local atkName = tw.attackerSnap and tw.attackerSnap.name or "?"
-    local defName = tw.defenderSnap and tw.defenderSnap.name or "?"
-    Fonts.with(9, function()
-        love.graphics.setColor(0.75, 0.75, 0.80, 1)
-        love.graphics.printf(atkName .. "  →  " .. defName, panX + 10, panY + 34, panW - 20, "center")
-    end)
-
-    local hitboxes = {}
-    local y = panY + 58
-
-    for i, entry in ipairs(tw.traps) do
-        local def = entry.card.definition
-
-        -- Trap row
-        love.graphics.setColor(0.40, 0.12, 0.65, 1)
-        love.graphics.rectangle("fill", panX + 12, y, panW - 24, 48, 6)
-        love.graphics.setColor(0.68, 0.38, 1.00, 1)
-        love.graphics.setLineWidth(1)
-        love.graphics.rectangle("line", panX + 12, y, panW - 24, 48, 6)
-        love.graphics.setLineWidth(1)
-
-        Fonts.with(11, function()
-            love.graphics.setColor(1, 0.92, 1, 1)
-            love.graphics.print(def.name, panX + 20, y + 6)
-        end)
-        Fonts.with(8, function()
-            love.graphics.setColor(0.78, 0.65, 0.85, 1)
-            love.graphics.printf(def.abilityText and def.abilityText:sub(1, 60) or "", panX + 20, y + 22, panW - 120, "left")
-        end)
-
-        -- Activate button
-        local btnX = panX + panW - 100
-        local btnY = y + 10
-        love.graphics.setColor(0.65, 0.15, 0.90, 1)
-        love.graphics.rectangle("fill", btnX, btnY, 82, 28, 5)
-        Fonts.with(9, function()
-            love.graphics.setColor(1, 1, 1, 1)
-            love.graphics.printf("ACTIVATE", btnX, btnY + 8, 82, "center")
-        end)
-        table.insert(hitboxes, { type="activate", trapIndex=i, x=btnX, y=btnY, w=82, h=28 })
-
-        y = y + 58
-    end
-
-    -- Pass button
-    local passX = panX + panW / 2 - 75
-    love.graphics.setColor(0.22, 0.22, 0.30, 1)
-    love.graphics.rectangle("fill", passX, y + 8, 150, 34, 6)
-    love.graphics.setColor(0.55, 0.55, 0.65, 1)
-    love.graphics.setLineWidth(1)
-    love.graphics.rectangle("line", passX, y + 8, 150, 34, 6)
-    Fonts.with(11, function()
-        love.graphics.setColor(0.70, 0.70, 0.78, 1)
-        love.graphics.printf("PASS", panX, y + 16, panW, "center")
-    end)
-    table.insert(hitboxes, { type="pass", x=passX, y=y+8, w=150, h=34 })
-
-    return hitboxes
 end
 
 -- ── Highlight helpers ────────────────────────────────────────────────────────

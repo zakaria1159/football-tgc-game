@@ -76,7 +76,7 @@ local function advance()
     local st = store()
     if not st or not st.match then return end
     if st.coverWindow and st.match.activePlayer == "opponent" then
-        for _, hb in ipairs(require("ui.cover_prompt").getHitboxes(st.coverWindow)) do
+        for _, hb in ipairs(require("ui.overlay.promptpanel").coverHitboxes(st.coverWindow, 0)) do
             if hb.type == "letthrough" then press(hb.x + hb.w / 2, hb.y + hb.h / 2); return end
         end
     end
@@ -286,6 +286,65 @@ S.trap = {
     { 5.5,  function() love.keypressed("space") end },
     { 5.8,  function(c) c.snap("dismissed") end },
     { 6.0,  function(c) c.quit() end },
+}
+
+-- Pitched card for harness-built boards.
+local function pitched(id, slotType, mode)
+    return { definition = defById(id), mode = mode or "attack", exhausted = false, slotType = slotType }
+end
+
+-- Cover prompt (synthetic window, harness-only): the opponent striker attacks your empty
+-- DEF slot; your midfielder can cover.
+S.cover = {
+    { 0.3,  function() math.randomseed(7) end },
+    { 0.5,  kickOff },
+    { 1.5,  function()
+        local st = store()
+        local P, O = st.match.players.player.pitch, st.match.players.opponent.pitch
+        P.midfielder = pitched("mid-box-to-box", "midfielder")
+        O.strikers[1] = pitched("str-speed-demon", "striker")
+        st.match.activePlayer = "opponent"
+        st.coverWindow = {
+            attackerSlot     = { type = "striker", index = 1 },
+            emptySlot        = { type = "defender", index = 1 },
+            eligibleCoverers = { { type = "midfielder", index = 0, card = P.midfielder } },
+            attackerSnap     = snapFrom("str-speed-demon"),
+        }
+    end },
+    { 1.62, function(c) c.snap("slide") end },
+    { 2.0,  function()
+        local hb = require("ui.overlay.promptpanel").coverHitboxes(store().coverWindow, 0)[1]
+        move(hb.x + hb.w / 2, hb.y + hb.h / 2)
+    end },
+    { 2.4,  function(c) c.snap("panel") end },
+    { 2.6,  function(c) c.quit() end },
+}
+
+-- Trap window (synthetic, harness-only): pre-attack with OFFSIDE + MANAGER'S CHALLENGE set.
+S.trapwin = {
+    { 0.3,  function() math.randomseed(7) end },
+    { 0.5,  kickOff },
+    { 1.5,  function()
+        local st = store()
+        local P = st.match.players.player.pitch
+        P.traps[1] = pitched("trap-offside", "trap", "defense")
+        P.traps[2] = pitched("trap-managers-challenge", "trap", "defense")
+        st.trapWindow = {
+            type         = "pre_attack",
+            attackerSlot = { type = "striker", index = 1 },
+            defenderSlot = { type = "defender", index = 1 },
+            traps        = { { card = P.traps[1], slotIndex = 1 }, { card = P.traps[2], slotIndex = 2 } },
+            attackerSnap = snapFrom("str-poacher"),
+            defenderSnap = snapFrom("def-the-rock"),
+        }
+    end },
+    { 1.62, function(c) c.snap("slide") end },
+    { 2.0,  function()
+        local hb = require("ui.overlay.promptpanel").trapHitboxes(store().trapWindow, 0)[1]
+        move(hb.x + hb.w / 2, hb.y + hb.h / 2)
+    end },
+    { 2.4,  function(c) c.snap("panel") end },
+    { 2.6,  function(c) c.quit() end },
 }
 
 return S
