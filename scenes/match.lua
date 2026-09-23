@@ -42,6 +42,7 @@ local aiDifficulty   = "medium"
 
 local pauseOpen   = false
 local libraryOpen = false
+local lastLogLen  = 0
 
 -- Selected pitched card for left panel detail
 local selectedPitchedCard = nil
@@ -65,6 +66,7 @@ local trapHitboxes  = {}
 
 -- Flux animations
 local flyingCards = {}
+local drawAnims   = {}   -- card-draw flying animations (card back sliding to hand / AI area)
 local overlayAnim = {
     panelY      = 0,    -- panel vertical offset (starts off-screen, tweens to 0)
     atkOffX     = 0,    -- attacker card horizontal offset (slides from left)
@@ -118,6 +120,7 @@ function Match.enter(matchStore, difficulty)
     activeTrapActiv     = nil
     coverHitboxes       = {}
     flyingCards         = {}
+    drawAnims           = {}
     trapHitboxes        = {}
     aiPlan              = nil
     aiActionIndex       = 0
@@ -127,6 +130,7 @@ function Match.enter(matchStore, difficulty)
     flashTimer          = 0
     debugLogOpen        = false
     debugLogScroll      = 0
+    lastLogLen          = 0
     Character.reset()
 
     if not fxGoal then
@@ -158,6 +162,19 @@ function Match.update(dt)
 
     if goalParticles then goalParticles:update(dt) end
     Character.update(dt, match.players.player.lp)
+
+    -- Scan new log entries for notable events
+    local log = match.log or {}
+    for i = lastLogLen + 1, #log do
+        local evt = log[i]
+        local p   = evt.payload or {}
+        if evt.type == "midfield_control" and p.player == "player" then
+            Match.flash("MIDFIELD CONTROL  +1 SUMMON")
+        elseif evt.type == "card_drawn" then
+            Match.spawnDrawAnim(p.player == "player")
+        end
+    end
+    lastLogLen = #log
     if scoutReveal then
         scoutReveal.timer = scoutReveal.timer - dt
         if scoutReveal.timer <= 0 then scoutReveal = nil end
@@ -386,6 +403,32 @@ function Match.draw()
                 end
                 love.graphics.setLineWidth(1)
             end
+        end
+    end
+
+    -- Draw animations (card backs flying to hand / AI area)
+    for _, da in ipairs(drawAnims) do
+        if da.alpha > 0 then
+            local dw, dh = 44, 62
+            local dx, dy = math.floor(da.x), math.floor(da.y)
+            -- Shadow
+            love.graphics.setColor(0, 0, 0, 0.45 * da.alpha)
+            love.graphics.rectangle("fill", dx+3, dy+3, dw, dh, 5)
+            -- Card back body
+            love.graphics.setColor(0.08, 0.06, 0.18, da.alpha)
+            love.graphics.rectangle("fill", dx, dy, dw, dh, 5)
+            -- Border glow
+            love.graphics.setColor(0.45, 0.30, 0.80, da.alpha * 0.90)
+            love.graphics.setLineWidth(1.5)
+            love.graphics.rectangle("line", dx, dy, dw, dh, 5)
+            love.graphics.setLineWidth(1)
+            -- Inner cross pattern
+            love.graphics.setColor(0.25, 0.18, 0.45, da.alpha * 0.55)
+            love.graphics.line(dx+6, dy+6, dx+dw-6, dy+dh-6)
+            love.graphics.line(dx+dw-6, dy+6, dx+6, dy+dh-6)
+            -- Centre dot
+            love.graphics.setColor(0.55, 0.40, 0.90, da.alpha * 0.80)
+            love.graphics.circle("fill", dx+dw/2, dy+dh/2, 4)
         end
     end
 
@@ -1195,6 +1238,48 @@ end
 function Match.flash(msg)
     flashMsg   = msg
     flashTimer = FLASH_DURATION
+end
+
+-- Spawn a flying card-back animation when a card is drawn.
+-- isPlayer=true  → card flies from right panel down into the player hand.
+-- isPlayer=false → face-down card flies from right panel up into the AI area and fades.
+function Match.spawnDrawAnim(isPlayer)
+    local W  = love.graphics.getWidth()
+    local H  = love.graphics.getHeight()
+    local L  = Theme.layout
+
+    -- Origin: right panel deck pile
+    local sx = L.panelX + L.panelW * 0.5 - 22
+    local sy = H * 0.38
+
+    local da = { x = sx, y = sy, alpha = 1.0, isPlayer = isPlayer }
+
+    if isPlayer then
+        -- Destination: centre of the hand strip
+        local tx = L.pitchX + L.pitchW * 0.5 - 22
+        local ty = H - L.handH + 8
+        flux.to(da, 0.38, { x = tx, y = ty }):ease("quadout")
+            :oncomplete(function()
+                da.alpha = 0  -- snap invisible once docked
+                for ii, d in ipairs(drawAnims) do
+                    if d == da then table.remove(drawAnims, ii); break end
+                end
+            end)
+        flux.to(da, 0.10, { alpha = 0 }):delay(0.30)
+    else
+        -- Destination: AI hand area (top of pitch, off into the top bar)
+        local tx = L.pitchX + L.pitchW * 0.38 - 22
+        local ty = L.topBarH + 4
+        flux.to(da, 0.32, { x = tx, y = ty, alpha = 0 }):ease("quadout")
+            :oncomplete(function()
+                for ii, d in ipairs(drawAnims) do
+                    if d == da then table.remove(drawAnims, ii); break end
+                end
+            end)
+    end
+
+    Audio.play("card_summon", 0.35)
+    table.insert(drawAnims, da)
 end
 
 function Match.drawScoutReveal(pitchedCard)

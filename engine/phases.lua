@@ -597,8 +597,24 @@ function Phases.endTurn(matchState)
         end
     end
 
-    matchState.phase      = "draw"
+    matchState.phase       = "draw"
     matchState.summonCount = 0
+
+    -- Midfield control: award extra summon to new active player if their midfielder
+    -- outpowers the opponent's. Only actual midfielder-type cards count (Option B).
+    local newId  = matchState.activePlayer
+    local oppId  = newId == "player" and "opponent" or "player"
+    local myPow  = Combat.midfielderPower(matchState.players[newId].pitch)
+    local oppPow = Combat.midfielderPower(matchState.players[oppId].pitch)
+    if myPow > oppPow then
+        local base = matchState.players[newId].nextTurnSummonLimit or C.MATCH.MAX_SUMMONS_PER_TURN
+        matchState.players[newId].nextTurnSummonLimit = base + C.MATCH.MIDFIELD_CONTROL_BONUS
+        State.log(matchState, T.EventType.MIDFIELD_CONTROL, {
+            player = newId,
+            myPow  = myPow,
+            oppPow = oppPow,
+        })
+    end
 
     -- Check half end again after turn increment (for Extra Time countdown)
     halfWinner = State.checkHalfEnd(matchState)

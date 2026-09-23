@@ -23,6 +23,9 @@ local function describe(event)
             else return "Midfield duel: " .. who .. " wins! (margin " .. (p.margin or 0) .. ")"
             end
         end
+    elseif t == "midfield_control" then
+        local who = p.player == "player" and "You control" or "Opponent controls"
+        return who .. " midfield (" .. (p.myPow or 0) .. " vs " .. (p.oppPow or 0) .. ")  +1 summon"
     elseif t == "attack_declared" then return "Attack declared on " .. (p.defender and p.defender.type or "?") .. " slot."
     elseif t == "defender_exhaust" then return "Defender exhausted."
     elseif t == "defender_destroy" then return "Defender DESTROYED!"

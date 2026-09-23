@@ -1,10 +1,11 @@
 local C = {}
 
 C.MATCH = {
-    STARTING_HAND_SIZE   = 5,
-    MAX_SUMMONS_PER_TURN = 2,
-    STARTING_LP          = 4000,
-    EXTRA_TIME_TURNS     = 6,
+    STARTING_HAND_SIZE        = 5,
+    MAX_SUMMONS_PER_TURN      = 2,
+    STARTING_LP               = 4000,
+    EXTRA_TIME_TURNS          = 6,
+    MIDFIELD_CONTROL_BONUS    = 1,   -- extra summons awarded for controlling midfield
 }
 
 C.COMBAT = {

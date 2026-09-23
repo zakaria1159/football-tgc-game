@@ -1,6 +1,7 @@
 local Theme = require("ui.theme")
 local Fonts = require("ui.fonts")
 local Audio = require("ui.audio")
+local C     = require("engine.constants")
 
 local HUD = {}
 HUD.debugAIHand = false
@@ -149,12 +150,18 @@ function HUD.draw(matchState)
     end)
     y = y + 18
 
-    -- Summon counter
+    -- Summon counter — reads the real limit so midfield control bonus shows correctly
     local summonCount = matchState.summonCount or 0
-    local maxSummons  = 2
+    local maxSummons  = (matchState.players.player.nextTurnSummonLimit
+                         or C.MATCH.MAX_SUMMONS_PER_TURN)
+    local midBonus    = maxSummons > C.MATCH.MAX_SUMMONS_PER_TURN
     Fonts.with(9, function()
-        love.graphics.setColor(0.55, 0.50, 0.52, 1)
-        love.graphics.printf("SUMMONS  " .. summonCount .. " / " .. maxSummons, px, y, pw, "center")
+        love.graphics.setColor(midBonus and 0.45 or 0.55,
+                               midBonus and 0.80 or 0.50,
+                               midBonus and 0.45 or 0.52, 1)
+        local label = "SUMMONS  " .. summonCount .. " / " .. maxSummons
+        if midBonus then label = label .. "  ★" end
+        love.graphics.printf(label, px, y, pw, "center")
     end)
     y = y + 16
 

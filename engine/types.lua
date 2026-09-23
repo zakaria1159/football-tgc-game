@@ -35,17 +35,18 @@ T.ShotOutcome = {
 }
 
 T.EventType = {
-    CARD_DRAWN       = "card_drawn",
-    CARD_PLAYED      = "card_played",
-    ATTACK_DECLARED  = "attack_declared",
-    DEFENDER_EXHAUST = "defender_exhaust",
-    DEFENDER_DESTROY = "defender_destroy",
-    COVER            = "cover",
-    SHOT             = "shot",
-    LP_DAMAGE        = "lp_damage",
-    HALF_END         = "half_end",
-    TURN_END         = "turn_end",
-    MATCH_END        = "match_end",
+    CARD_DRAWN        = "card_drawn",
+    CARD_PLAYED       = "card_played",
+    ATTACK_DECLARED   = "attack_declared",
+    DEFENDER_EXHAUST  = "defender_exhaust",
+    DEFENDER_DESTROY  = "defender_destroy",
+    COVER             = "cover",
+    SHOT              = "shot",
+    LP_DAMAGE         = "lp_damage",
+    HALF_END          = "half_end",
+    TURN_END          = "turn_end",
+    MATCH_END         = "match_end",
+    MIDFIELD_CONTROL  = "midfield_control",
 }
 
 return T
