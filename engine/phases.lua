@@ -273,6 +273,7 @@ function Phases.changeMode(matchState, slotType, slotIndex)
     local activeId = matchState.activePlayer
     local card = Phases._getSlotForPlayer(matchState, activeId, { type = slotType, index = slotIndex })
     if not card then return false, "no card in slot" end
+    if slotType == "keeper" then return false, "keepers can never change mode" end
     if card.mode == "attack" then return false, "card is already in attack mode" end
     if card.summonedThisTurn then return false, "cannot flip a card summoned this turn" end
     if card.modeChanged then return false, "already changed mode this turn" end

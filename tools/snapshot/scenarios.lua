@@ -466,6 +466,11 @@ S.revealed = {
         P.defenders[1] = revealed("def-the-rock", "defender")
         P.defenders[2] = pitched("def-stopper", "defender", "defense")
         P.midfielder   = pitched("mid-box-to-box", "midfielder", "defense")
+        -- Revealed keeper: face-up defense, must never show the flip ribbon.
+        P.keeper       = revealed("keeper-iron-fists", "keeper")
+        -- Revealed but exhausted: legal to flip in every other way, but exhausted right now.
+        P.strikers[1]  = revealed("str-target-man", "striker")
+        P.strikers[1].exhausted = true
         O.defenders[1] = revealed("def-destroyer", "defender")
         O.defenders[2] = pitched("def-libero", "defender", "defense")
         O.midfielder   = revealed("mid-deep-lying-playmaker", "midfielder")

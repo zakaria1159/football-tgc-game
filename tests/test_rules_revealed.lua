@@ -70,6 +70,15 @@ T.test("revealed: the combat snapshot shows it face-up", function()
     T.eq(snap.defender.wasHidden, false)
 end)
 
+T.test("revealed: a keeper can never be flipped to attack, even after a shot reveals it", function()
+    local m = H.match({ phase = "summon" })
+    local k = H.place(m, "player", "keeper", 0, H.card("keeper", 300, 1600), "defense")
+    k.revealed = true
+    local ok, err = H.store(m):changeMode("keeper", 0)
+    T.eq(ok, false); T.eq(k.mode, "defense")
+    T.ok(err ~= nil)
+end)
+
 T.test("revealed: the AI reads a revealed card's DEF instead of guessing", function()
     local m = H.match({ active = "opponent" })
     H.place(m, "opponent", "striker", 1, H.card("striker", 1800, 500))
