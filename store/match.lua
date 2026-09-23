@@ -263,7 +263,7 @@ function Store:declareAttack(attackerSlot, defenderSlot)
         local varTrap, varIdx = self:_findTrap(match.players.opponent.pitch, "VAR")
         if varTrap then
             Phases.activateTrap(match, "opponent", varIdx)
-            match.players.opponent.lp = match.players.opponent.lp + (result.damage or 0)
+            State.refundDamage(match, "player", result.damage or 0)
             local pitch = match.players.player.pitch
             local striker = pitch.strikers[attackerSlot.index]
             if striker then
@@ -433,7 +433,7 @@ function Store:resolveTrap(trapSlotIndex)
 
         elseif tw.type == "post_damage" and ability == "VAR" then
             -- Undo LP damage, return AI's striker to opponent's hand
-            match.players.player.lp = match.players.player.lp + (tw.damage or 0)
+            State.refundDamage(match, "opponent", tw.damage or 0)
             local oppPitch = match.players.opponent.pitch
             local striker  = oppPitch.strikers[tw.attackerSlot.index]
             if striker then
@@ -560,9 +560,9 @@ end
 -- ── Private helpers ────────────────────────────────────────────────────────────
 
 function Store:_checkHalf()
-    local hw = State.checkHalfEnd(self.match)
+    local hw, reason = State.checkHalfEnd(self.match)
     if hw and not self.match.winner then
-        State.endHalf(self.match, hw)
+        State.endHalf(self.match, hw, reason)
     end
 end
 

@@ -58,6 +58,7 @@ local function newPlayerState(id, deck)
         lp               = C.MATCH.STARTING_LP,
         halvesWon        = 0,
         totalDamageDealt = 0,
+        halfDamageDealt  = 0,       -- LP damage dealt this half (half-limit / Extra Time decider)
         nextTurnSummonLimit = nil,  -- set by TIME_WASTING trap
     }
 end
@@ -133,6 +134,27 @@ function State.dealDamage(matchState, dealerId, amount)
     local victim = matchState.players[State.other(dealerId)]
     victim.lp = victim.lp - amount
     dealer.totalDamageDealt = dealer.totalDamageDealt + amount
+    dealer.halfDamageDealt  = (dealer.halfDamageDealt or 0) + amount
+end
+
+-- Undo damage (VAR): the victim gets the LP back and the dealer's totals drop.
+function State.refundDamage(matchState, dealerId, amount)
+    local dealer = matchState.players[dealerId]
+    local victim = matchState.players[State.other(dealerId)]
+    victim.lp = victim.lp + amount
+    dealer.totalDamageDealt = dealer.totalDamageDealt - amount
+    dealer.halfDamageDealt  = (dealer.halfDamageDealt or 0) - amount
+end
+
+-- Winner of a half that ran out of rounds: more LP → more damage dealt this half →
+-- the player who went second this half.
+function State.decideOnTime(matchState)
+    local p = matchState.players.player
+    local o = matchState.players.opponent
+    if p.lp ~= o.lp then return p.lp > o.lp and "player" or "opponent" end
+    local pd, od = p.halfDamageDealt or 0, o.halfDamageDealt or 0
+    if pd ~= od then return pd > od and "player" or "opponent" end
+    return State.other(matchState.halfStarter or "player")
 end
 
 function State.drawCard(matchState, playerId)
@@ -165,24 +187,33 @@ function State.activeCount(pitch, line)
     return count
 end
 
--- Check if a half has ended (LP <= 0). Returns winner id or nil.
+-- Check if a half has ended. Returns winnerId, reason ("lp" | "time"), or nil.
+--   LP:   a player at 0 LP or less loses the half.
+--   Time: halves 1 and 2 end after C.MATCH.HALF_ROUND_LIMIT rounds; Extra Time after
+--         C.MATCH.EXTRA_TIME_TURNS rounds (extraTurnsLeft reaches 0).
 function State.checkHalfEnd(matchState)
     local p = matchState.players.player
     local o = matchState.players.opponent
-    if p.lp <= 0 then return "opponent" end
-    if o.lp <= 0 then return "player" end
-    if matchState.half == "extra" and matchState.extraTurnsLeft <= 0 then
-        -- Extra Time: whoever dealt more total LP damage wins
-        if p.totalDamageDealt > o.totalDamageDealt then return "player"
-        elseif o.totalDamageDealt > p.totalDamageDealt then return "opponent"
-        else return "player" end  -- tiebreak: player wins
+    if p.lp <= 0 then return "opponent", "lp" end
+    if o.lp <= 0 then return "player", "lp" end
+    if matchState.half == "extra" then
+        if matchState.extraTurnsLeft <= 0 then
+            -- Extra Time: whoever dealt more total LP damage wins
+            if p.totalDamageDealt > o.totalDamageDealt then return "player", "time"
+            elseif o.totalDamageDealt > p.totalDamageDealt then return "opponent", "time"
+            else return "player", "time" end  -- tiebreak: player wins
+        end
+        return nil
+    end
+    if matchState.turn > C.MATCH.HALF_ROUND_LIMIT then
+        return State.decideOnTime(matchState), "time"
     end
     return nil
 end
 
 -- Called when a half ends. Advances to next half or ends the match.
-function State.endHalf(matchState, halfWinner)
-    State.log(matchState, "half_end", { half = matchState.half, winner = halfWinner })
+function State.endHalf(matchState, halfWinner, reason)
+    State.log(matchState, "half_end", { half = matchState.half, winner = halfWinner, reason = reason or "lp" })
     matchState.players[halfWinner].halvesWon = matchState.players[halfWinner].halvesWon + 1
 
     local p = matchState.players.player
@@ -222,8 +253,11 @@ function State._resetHalf(matchState, newHalf)
     matchState.strategyPlayedThisTurn = false
     matchState.bypassCoverNextStrikerAttack = nil
 
-    for _, ps in pairs(matchState.players) do
+    -- Fixed order (not pairs): the redeal consumes math.random, so seeded runs repeat.
+    for _, seat in ipairs({ "player", "opponent" }) do
+        local ps = matchState.players[seat]
         ps.lp                  = C.MATCH.STARTING_LP
+        ps.halfDamageDealt     = 0
         ps.nextTurnSummonLimit = nil
 
         -- Collect all non-destroyed cards (hand + pitch) back into pool for redeal.

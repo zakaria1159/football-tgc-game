@@ -4,7 +4,8 @@ C.MATCH = {
     STARTING_HAND_SIZE        = 5,
     MAX_SUMMONS_PER_TURN      = 2,
     STARTING_LP               = 4000,
-    EXTRA_TIME_TURNS          = 6,
+    EXTRA_TIME_TURNS          = 6,    -- Extra Time rounds
+    HALF_ROUND_LIMIT          = 14,   -- rounds per half (halves 1 and 2); a round = one turn each
     MIDFIELD_CONTROL_BONUS    = 1,   -- extra summons awarded for controlling midfield
 }
 

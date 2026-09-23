@@ -565,9 +565,9 @@ function Phases.endTurn(matchState)
     matchState.players[activeId].nextTurnSummonLimit = nil
 
     -- Check if half ended
-    local halfWinner = State.checkHalfEnd(matchState)
+    local halfWinner, reason = State.checkHalfEnd(matchState)
     if halfWinner then
-        State.endHalf(matchState, halfWinner)
+        State.endHalf(matchState, halfWinner, reason)
         return
     end
 
@@ -601,10 +601,10 @@ function Phases.endTurn(matchState)
         })
     end
 
-    -- Check half end again after turn increment (for Extra Time countdown)
-    halfWinner = State.checkHalfEnd(matchState)
+    -- Check half end again after the round count moved on (half limit, Extra Time countdown)
+    halfWinner, reason = State.checkHalfEnd(matchState)
     if halfWinner then
-        State.endHalf(matchState, halfWinner)
+        State.endHalf(matchState, halfWinner, reason)
     end
 end
 
