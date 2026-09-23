@@ -64,3 +64,9 @@ T.test("selected card lifts", function()
     local c = HandFan.layout(5, AREA, nil, nil, 2)
     T.near(c[2].by, AREA.baseY + HandFan.ARC_DROP - HandFan.SELECT_LIFT)
 end)
+
+T.test("maxHoverX caps the magnification band so the button column never magnifies", function()
+    local area = { x = 444, y = 540, w = 512, cx = 700, baseY = 782, maxHoverX = 990 }
+    local c = HandFan.layout(8, area, 1000, 700)
+    for i = 1, 8 do T.near(c[i].scale, 1) end
+end)

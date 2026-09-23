@@ -3,7 +3,7 @@
 local HandFan = {}
 
 HandFan.CARD_W, HandFan.CARD_H = 120, 165   -- Theme.cardSize.hand
-HandFan.MAX_SPACING = 84     -- centre-to-centre at rest
+HandFan.MAX_SPACING = 112    -- centre-to-centre at rest
 HandFan.ANGLE_STEP  = 0.06   -- radians between neighbours
 HandFan.MAX_ANGLE   = 0.20   -- outermost card rotation cap
 HandFan.ARC_DROP    = 2.5    -- px × (offset from centre)²
@@ -29,6 +29,7 @@ function HandFan.layout(n, area, hoverX, hoverY, selectedIndex)
     local mid = (n + 1) / 2
     local hovering = hoverX ~= nil and hoverY ~= nil and hoverY >= area.y
         and hoverX >= area.x - HandFan.RADIUS and hoverX <= area.x + area.w + HandFan.RADIUS
+        and (area.maxHoverX == nil or hoverX <= area.maxHoverX)
     local hot, hotT = nil, 0
 
     for i = 1, n do

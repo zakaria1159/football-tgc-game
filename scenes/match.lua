@@ -48,9 +48,6 @@ local libraryOpen = false
 local lastLogLen  = 0
 local aiHandDebug = false
 
--- Last pitched card clicked (kept for the existing input flow)
-local selectedPitchedCard = nil
-
 -- Goal/LP flash
 local lpFlash  = { alpha = 0 }
 local lpDealer = nil
@@ -115,7 +112,6 @@ function Match.enter(matchStore, difficulty)
     substitutionFreedSlot = nil
     scoutPending        = false
     scoutReveal         = nil
-    selectedPitchedCard = nil
     lpFlash.alpha       = 0
     combatQueue         = {}
     activeCombat        = nil
@@ -966,7 +962,6 @@ function Match.mousepressed(x, y, button)
                 local pitch = match.players.player.pitch
                 local card  = Match.getCardInSlot(pitch, slot)
                 if card then
-                    selectedPitchedCard = card
                     -- Striker, midfielder, and defender slots can all attack
                     local canAttack = slot.slotType == "striker"
                                    or slot.slotType == "midfielder"
@@ -1003,13 +998,6 @@ function Match.mousepressed(x, y, button)
                 return
             end
 
-            -- Fallthrough: view card detail
-            local viewPitch = match.players[slot.owner].pitch
-            local viewCard  = Match.getCardInSlot(viewPitch, slot)
-            if viewCard then
-                selectedPitchedCard = viewCard
-                selectedHandCard    = nil
-            end
             return
         end
     end
@@ -1318,7 +1306,7 @@ function Match.drawAIHandDebug(match)
     local panW = 340
     local panH = math.min(H - 80, 20 + #o.hand * 22 + 16)
     local panX = (W - panW) / 2
-    local panY = 40
+    local panY = 96
 
     love.graphics.setColor(0.05, 0.05, 0.12, 0.94)
     love.graphics.rectangle("fill", panX, panY, panW, panH, 8)

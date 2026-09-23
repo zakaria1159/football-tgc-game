@@ -39,7 +39,7 @@ Layout.bottom = {
     deck        = { x = 212, y = 680, w = 76,  h = 104 },
     deckCount   = { x = 296, y = 740, w = 64,  h = 28 },
     toastX = 208, toastW = 224, toastH = 28, toastGap = 6, toastBottomY = 640,
-    hand        = { x = 444, y = 540, w = 512, h = 260, cx = 700, baseY = 782 },
+    hand        = { x = 444, y = 540, w = 512, h = 260, cx = 700, baseY = 766, maxHoverX = 990 },
     summons     = { x = 996, y = 552, w = 240, h = 34 },
     toggle      = { x = 996, y = 598, w = 240, h = 42 },
     startAttack = { x = 996, y = 652, w = 240, h = 52 },
