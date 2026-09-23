@@ -1,5 +1,4 @@
 local flux          = require("lib.flux")
-local moonshine     = require("lib.moonshine")
 local Theme         = require("ui.theme")
 local Fonts         = require("ui.fonts")
 local Draw          = require("ui.kit.draw")
@@ -22,6 +21,8 @@ local Toasts        = require("ui.match.toasts")
 local Banner        = require("ui.match.banner")
 local Hover         = require("ui.match.hover")
 local Zoom          = require("ui.match.zoom")
+local Tween         = require("ui.kit.tween")
+local Confetti      = require("ui.match.confetti")
 
 local Match = {}
 
@@ -50,10 +51,6 @@ local libraryOpen = false
 local lastLogLen  = 0
 local aiHandDebug = false
 
--- Goal/LP flash
-local lpFlash  = { alpha = 0 }
-local lpDealer = nil
-
 -- Combat overlay queue
 local combatQueue  = {}
 local activeCombat = nil
@@ -79,14 +76,6 @@ local overlayAnim = {
     resultAlpha = 0,    -- result text/pill fade-in
     shakeX      = 0,    -- horizontal shake at clash moment
 }
-local shimmers    = {}
-
--- Moonshine effects
-local fxGoal   = nil
-local fxCombat = nil
-
--- Particles
-local goalParticles = nil
 
 -- Toasts (log events) and ribbon banner (Match.flash)
 local toasts = Toasts.new()
@@ -119,7 +108,6 @@ function Match.enter(matchStore, difficulty)
     substitutionFreedSlot = nil
     scoutPending        = false
     scoutReveal         = nil
-    lpFlash.alpha       = 0
     combatQueue         = {}
     activeCombat        = nil
     trapActivQueue      = {}
@@ -133,7 +121,6 @@ function Match.enter(matchStore, difficulty)
     aiPlan              = nil
     aiActionIndex       = 0
     aiTimer             = 0
-    shimmers            = {}
     debugLogOpen        = false
     debugLogScroll      = 0
     lastLogLen          = 0
@@ -146,26 +133,6 @@ function Match.enter(matchStore, difficulty)
     Character.reset()
     TopBar.reset(store.match)
     BottomBar.reset()
-
-    if not fxGoal then
-        fxGoal   = moonshine(moonshine.effects.glow)
-        fxCombat = moonshine(moonshine.effects.glow)
-    end
-    if not goalParticles then
-        local img = love.graphics.newCanvas(4, 4)
-        love.graphics.setCanvas(img)
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.rectangle("fill", 0, 0, 4, 4)
-        love.graphics.setCanvas()
-        goalParticles = love.graphics.newParticleSystem(img, 120)
-        goalParticles:setParticleLifetime(0.6, 1.4)
-        goalParticles:setEmissionRate(0)
-        goalParticles:setSpeed(80, 220)
-        goalParticles:setLinearDamping(1.0)
-        goalParticles:setSpread(math.pi * 2)
-        goalParticles:setSizes(1.0, 0.4)
-        goalParticles:setColors(1, 0.84, 0, 1,  1, 1, 1, 0.8,  1, 1, 1, 0)
-    end
 end
 
 -- ── Update ────────────────────────────────────────────────────────────────────
@@ -174,7 +141,7 @@ function Match.update(dt)
     if not store or not store.match then return end
     local match = store.match
 
-    if goalParticles then goalParticles:update(dt) end
+    Confetti.update(dt)
     Character.update(dt, match.players.player.lp)
     toasts:update(dt)
     banner:update(dt)
@@ -233,9 +200,9 @@ function Match.update(dt)
                 -- screen shake on clash
                 overlayAnim.shakeX = 7
                 flux.to(overlayAnim, 0.28, { shakeX = 0 }):ease("elasticout")
-                -- LP damage flash
+                -- LP damage: banner + confetti
                 if activeCombat and activeCombat.damage and activeCombat.damage > 0 then
-                    Match.onLPDamage(match.activePlayer)
+                    Match.onLPDamage(match.activePlayer, activeCombat.outcome == "damage")
                 end
                 -- Phase 3: clash recedes, result fades in (0.62s → 1.0s)
                 flux.to(overlayAnim, 0.18, { clashX = 0.15 }):ease("quadin")
@@ -343,44 +310,17 @@ function Match.draw()
     handHit = Hand.draw(match.players.player.hand,
         selectedHandCard and selectedHandCard.id or nil, handMouseX, handMouseY)
 
-    -- Summon shimmer
-    for _, sh in ipairs(shimmers) do
-        local sw = 12
-        love.graphics.setScissor(sh.x, sh.y, sh.w, sh.h)
-        love.graphics.setColor(1, 1, 1, 0.18)
-        love.graphics.polygon("fill",
-            sh.x + sh.shimX, sh.y,
-            sh.x + sh.shimX + sw, sh.y,
-            sh.x + sh.shimX + sw * 2, sh.y + sh.h,
-            sh.x + sh.shimX + sw, sh.y + sh.h)
-        love.graphics.setScissor()
-    end
+    -- Confetti
+    Confetti.draw()
 
-    -- Goal particles
-    if goalParticles then
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(goalParticles)
-    end
-
-    -- Card-draw animations
+    -- Card-draw animations (card back from the deck pile; scaled, never resized)
+    local dk = Layout.bottom.deck
     for _, da in ipairs(drawAnims) do
-        if da.alpha > 0 then
-            local dw, dh = 44, 62
-            local dx, dy = math.floor(da.x), math.floor(da.y)
-            love.graphics.setColor(0, 0, 0, 0.45 * da.alpha)
-            love.graphics.rectangle("fill", dx+3, dy+3, dw, dh, 5)
-            love.graphics.setColor(0.08, 0.06, 0.18, da.alpha)
-            love.graphics.rectangle("fill", dx, dy, dw, dh, 5)
-            love.graphics.setColor(0.45, 0.30, 0.80, da.alpha * 0.90)
-            love.graphics.setLineWidth(1.5)
-            love.graphics.rectangle("line", dx, dy, dw, dh, 5)
-            love.graphics.setLineWidth(1)
-            love.graphics.setColor(0.25, 0.18, 0.45, da.alpha * 0.55)
-            love.graphics.line(dx+6, dy+6, dx+dw-6, dy+dh-6)
-            love.graphics.line(dx+dw-6, dy+6, dx+6, dy+dh-6)
-            love.graphics.setColor(0.55, 0.40, 0.90, da.alpha * 0.80)
-            love.graphics.circle("fill", dx+dw/2, dy+dh/2, 4)
-        end
+        love.graphics.push()
+        love.graphics.translate(da.x + dk.w / 2, da.y + dk.h / 2)
+        love.graphics.scale(da.s, da.s)
+        Card.drawBack(-dk.w / 2, -dk.h / 2, dk.w, dk.h)
+        love.graphics.pop()
     end
 
     -- Flying cards (summon)
@@ -399,24 +339,6 @@ function Match.draw()
 
     -- Flash banner
     banner:draw()
-
-    -- LP damage flash
-    if lpFlash.alpha > 0 then
-        local r = lpDealer == "player" and 0.05 or 0.85
-        local g = lpDealer == "player" and 0.85 or 0.05
-        local b = 0.05
-        local drawFlash = function()
-            love.graphics.setColor(r, g, b, lpFlash.alpha * 0.28)
-            love.graphics.rectangle("fill", 0, 0, W, H)
-            Fonts.with(33, function()
-                love.graphics.setColor(1, 1, 1, lpFlash.alpha)
-                love.graphics.printf(
-                    lpDealer == "player" and "LP DAMAGE DEALT!" or "LP DAMAGE TAKEN!",
-                    0, H / 2 - 20, W, "center")
-            end)
-        end
-        if fxGoal then fxGoal(drawFlash) else drawFlash() end
-    end
 
     -- Combat overlay — drawn directly (backdrop must cover full screen)
     if activeCombat then
@@ -969,7 +891,7 @@ function Match.mousepressed(x, y, button)
                 end
             end
 
-            -- Summon: place card into slot
+            -- Summon: card flies from the hand, then squash-pops into its slot
             if match.phase == "summon" and selectedHandCard and slot.owner == "player" then
                 local r = Hand.rectOf(handHit, selectedHandCard.id)
                 local srcX = r and r.x or (x - slot.w / 2)
@@ -988,24 +910,27 @@ function Match.mousepressed(x, y, button)
 
                 if ok then
                     Audio.play("card_summon")
-                    local fc = { cardDef = cardDefCopy, x = srcX, y = srcY, w = slot.w, h = slot.h, mode = mode }
-                    flux.to(fc, 0.35, { x = slot.x, y = slot.y })
-                        :ease("quadout")
-                        :oncomplete(function()
-                            for ii, c in ipairs(flyingCards) do
-                                if c == fc then table.remove(flyingCards, ii); break end
-                            end
+                    -- Traps fill the first free trap slot, not necessarily the one clicked.
+                    local idx, dest = slot.slotIndex, slot
+                    if slot.slotType == "trap" then
+                        idx  = #match.players.player.pitch.traps
+                        dest = Layout.trapSlot("player", idx)
+                    end
+                    local key = Pitch.slotKey("player", slot.slotType, idx)
+                    pitchAnims.hidden[key] = true
+                    local fc = { cardDef = cardDefCopy, x = srcX, y = srcY, w = dest.w, h = dest.h, mode = mode }
+                    flux.to(fc, 0.30, { x = dest.x, y = dest.y }):ease("quadout"):oncomplete(function()
+                        for ii, c in ipairs(flyingCards) do
+                            if c == fc then table.remove(flyingCards, ii); break end
+                        end
+                        pitchAnims.hidden[key] = nil
+                        local pop = { sx = 1, sy = 1 }
+                        pitchAnims.pop[key] = pop
+                        Tween.squash(pop, 0.35):oncomplete(function()
+                            if pitchAnims.pop[key] == pop then pitchAnims.pop[key] = nil end
                         end)
+                    end)
                     table.insert(flyingCards, fc)
-
-                    local sh = { x = slot.x, y = slot.y, w = slot.w, h = slot.h, shimX = -slot.w }
-                    flux.to(sh, 0.40, { shimX = slot.w * 1.5 }):ease("quadout")
-                        :oncomplete(function()
-                            for ii, s in ipairs(shimmers) do
-                                if s == sh then table.remove(shimmers, ii); break end
-                            end
-                        end)
-                    table.insert(shimmers, sh)
                 end
                 selectedHandCard = nil
                 return
@@ -1119,21 +1044,18 @@ end
 
 -- ── Helpers ───────────────────────────────────────────────────────────────────
 
-function Match.onLPDamage(dealer)
-    lpDealer      = dealer
-    lpFlash.alpha = 1.0
-    flux.to(lpFlash, 1.6, { alpha=0 }):ease("quadout")
+-- LP damage: ribbon banner + confetti at the goal that was hit. isGoal = keeper shot.
+function Match.onLPDamage(dealer, isGoal)
+    local P  = Layout.pitch
+    local cy = P.y + P.h / 2
     if dealer == "player" then
         Character.setState("attacking")
+        banner:show(isGoal and "GOAL!" or "LP DAMAGE DEALT!", "good")
+        Confetti.burst(P.x + P.w - 40, cy, 90)
     else
         Character.setState("worried")
-    end
-
-    if goalParticles then
-        local cx = Layout.midX
-        local cy = Layout.pitch.y + Layout.pitch.h / 2
-        goalParticles:setPosition(cx, cy)
-        goalParticles:emit(50)
+        banner:show(isGoal and "OPPONENT SCORES!" or "LP DAMAGE TAKEN!", "bad")
+        Confetti.burst(P.x + 40, cy, 60)
     end
 end
 
@@ -1141,44 +1063,27 @@ function Match.flash(msg, kind)
     banner:show(string.upper(tostring(msg)), kind or "error")
 end
 
--- Spawn a flying card-back animation when a card is drawn.
--- isPlayer=true  → card flies from right panel down into the player hand.
--- isPlayer=false → face-down card flies from right panel up into the AI area and fades.
+-- Card back flies from your deck pile into the hand, or from the opponent's deck
+-- pill up into their avatar.
 function Match.spawnDrawAnim(isPlayer)
-    local W  = love.graphics.getWidth()
-    local H  = love.graphics.getHeight()
-    local L  = Theme.layout
-
-    -- Origin: right panel deck pile
-    local sx = L.panelX + L.panelW * 0.5 - 22
-    local sy = H * 0.38
-
-    local da = { x = sx, y = sy, alpha = 1.0, isPlayer = isPlayer }
-
-    if isPlayer then
-        -- Destination: centre of the hand strip
-        local tx = L.pitchX + L.pitchW * 0.5 - 22
-        local ty = H - L.handH + 8
-        flux.to(da, 0.38, { x = tx, y = ty }):ease("quadout")
-            :oncomplete(function()
-                da.alpha = 0  -- snap invisible once docked
-                for ii, d in ipairs(drawAnims) do
-                    if d == da then table.remove(drawAnims, ii); break end
-                end
-            end)
-        flux.to(da, 0.10, { alpha = 0 }):delay(0.30)
-    else
-        -- Destination: AI hand area (top of pitch, off into the top bar)
-        local tx = L.pitchX + L.pitchW * 0.38 - 22
-        local ty = L.topBarH + 4
-        flux.to(da, 0.32, { x = tx, y = ty, alpha = 0 }):ease("quadout")
-            :oncomplete(function()
-                for ii, d in ipairs(drawAnims) do
-                    if d == da then table.remove(drawAnims, ii); break end
-                end
-            end)
+    local dk = Layout.bottom.deck
+    local da
+    local function remove()
+        for ii, d in ipairs(drawAnims) do
+            if d == da then table.remove(drawAnims, ii); break end
+        end
     end
-
+    if isPlayer then
+        local h = Layout.bottom.hand
+        da = { x = dk.x, y = dk.y, s = 1 }
+        flux.to(da, 0.40, { x = h.cx - dk.w / 2, y = h.baseY - dk.h - 30, s = 1.5 })
+            :ease("quadout"):oncomplete(remove)
+    else
+        local o, av = Layout.top.oppDeck, Layout.top.oppAvatar
+        da = { x = o.x + o.w / 2 - dk.w / 2, y = o.y + o.h + 4, s = 0.6 }
+        flux.to(da, 0.35, { x = av.cx - dk.w / 2, y = av.cy - dk.h / 2, s = 0.15 })
+            :ease("quadin"):oncomplete(remove)
+    end
     Audio.play("card_summon", 0.35)
     table.insert(drawAnims, da)
 end

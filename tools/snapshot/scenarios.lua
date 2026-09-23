@@ -117,4 +117,38 @@ S.summon = {
 for t = 6.5, 14.0, 0.5 do S.summon[#S.summon + 1] = { t, advance } end
 byTime(S.summon)
 
+-- Juice: LP drain + GOAL banner + confetti, midfield banner, draw animation, summon pop.
+-- (Setting opponent LP directly is harness-only; it just feeds the LP bar.)
+S.juice = {
+    { 0.3,  function() math.randomseed(7) end },
+    { 0.5,  function() love.keypressed("return") end },
+    { 1.5,  function()
+        store().match.players.opponent.lp = 3200
+        require("scenes.match").onLPDamage("player", true)
+    end },
+    { 1.85, function(c) c.snap("drain") end },
+    { 2.9,  function(c) c.snap("settled") end },
+    { 3.0,  function() require("scenes.match").flash("MIDFIELD CONTROL +1 SUMMON", "good") end },
+    { 3.4,  function(c) c.snap("banner") end },
+    { 3.5,  function() require("scenes.match").spawnDrawAnim(true) end },
+    { 3.7,  function(c) c.snap("drawanim") end },
+    { 3.8,  function(c)
+        -- The full squash lasts about one frame, so snap on the frame it starts
+        -- (flux won't advance the new tween until the next update).
+        local Tween = require("ui.kit.tween")
+        local squash = Tween.squash
+        Tween.squash = function(obj, dur)
+            Tween.squash = squash
+            local tw = squash(obj, dur)
+            c.snap("pop")
+            return tw
+        end
+        press(handPoint(firstOf({ "keeper" })))
+    end },
+    { 4.0,  function() click(center(Layout.slot("player", "keeper", 0))) end },
+    { 4.05, function() move(640, 300) end },                  -- keep the zoom off the pop shot
+    { 4.9,  function(c) c.snap("popdone") end },
+    { 5.0,  function(c) c.quit() end },
+}
+
 return S
