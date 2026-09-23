@@ -198,4 +198,22 @@ S.debug = {
     { 4.0, function(c) c.quit() end },
 }
 
+-- Pause menu: pop-in, keyboard focus, CARD LIBRARY from pause, back, RESUME by click.
+S.pause = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, kickOff },
+    { 1.5, function() love.keypressed("escape") end },
+    { 1.6, function(c) c.snap("pop") end },
+    { 2.1, function(c) c.snap("menu") end },
+    { 2.2, function() love.keypressed("down") end },
+    { 2.5, function(c) c.snap("focus") end },
+    { 2.6, function() love.keypressed("return") end },       -- CARD LIBRARY
+    { 3.2, function(c) c.snap("library") end },
+    { 3.3, function() love.keypressed("escape") end },       -- back to the pause menu
+    { 3.6, function(c) c.snap("back") end },
+    { 3.7, function() click(center(require("ui.menu.pause").buttonRect(1))) end },   -- RESUME
+    { 4.1, function(c) c.snap("resumed") end },
+    { 4.5, function(c) c.quit() end },
+}
+
 return S

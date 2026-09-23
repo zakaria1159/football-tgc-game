@@ -12,7 +12,7 @@ local AI            = require("ai.opponent")
 local Audio         = require("ui.audio")
 local Character     = require("ui.character")
 local C             = require("engine.constants")
-local PauseMenu     = require("ui.pause_menu")
+local PauseMenu     = require("ui.menu.pause")
 local CardLibrary   = require("ui.menu.library")
 local Layout        = require("ui.match.layout")
 local TopBar        = require("ui.match.topbar")
@@ -143,6 +143,7 @@ function Match.update(dt)
     local match = store.match
 
     if libraryOpen then CardLibrary.update(dt, mouseX, mouseY) end
+    if pauseOpen and not libraryOpen then PauseMenu.update(dt, mouseX, mouseY) end
 
     Confetti.update(dt)
     Character.update(dt, match.players.player.lp)
@@ -693,6 +694,11 @@ end
 
 -- ── Input ────────────────────────────────────────────────────────────────────
 
+local function openPause()
+    pauseOpen = true
+    PauseMenu.open()
+end
+
 function Match.mousepressed(x, y, button)
     -- Card library takes full input priority
     if libraryOpen then
@@ -776,7 +782,7 @@ function Match.mousepressed(x, y, button)
     if not match or match.winner then return end
 
     local btn = Layout.buttonAt(x, y, match.phase)
-    if btn == "pause" then pauseOpen = true; return end
+    if btn == "pause" then openPause(); return end
     if btn == "music" then Audio.toggleMute(); return end
     if btn == "log" then
         debugLogOpen = not debugLogOpen
@@ -1025,7 +1031,7 @@ function Match.keypressed(key)
         elseif selectedAttackerSlot  then selectedAttackerSlot  = nil
         elseif substitutionFreedSlot then substitutionFreedSlot = nil
         elseif selectedHandCard      then selectedHandCard      = nil
-        else pauseOpen = true end
+        else openPause() end
     elseif key == "r" and store.match and store.match.winner then
         return "restart"
     end
