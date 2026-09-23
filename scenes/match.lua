@@ -438,7 +438,7 @@ function Match.draw()
             definition = fc.cardDef,
             exhausted  = false,
             mode       = fc.mode or "attack",
-        }, fc.x, fc.y, {})
+        }, fc.x, fc.y, { w = Theme.pitchCard.w, h = Theme.pitchCard.h })
     end
 
     -- Tooltip
@@ -1305,7 +1305,7 @@ function Match.drawScoutReveal(pitchedCard)
         local cw, ch = 110, 148
         local cx = px + math.floor((pw - cw) / 2)
         local cy = py + 42
-        Card.drawPitched(pitchedCard, cx, cy, { faceDown = false, w = cw, h = ch })
+        Card.drawFace(pitchedCard.definition, cx, cy, cw, ch, {})
         local d     = pitchedCard.definition
         local stats = d.stats or {}
         Fonts.with(11, function()

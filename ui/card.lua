@@ -3,12 +3,13 @@
 --   Card.drawPitched(pitched, x, y, opts)   opts: w, h, faceDown, canFlip, pitch, selected, target
 --   Card.drawInHand(cardDef, x, y, opts)    opts: w, h, selected   → returns {x,y,w,h}
 --   Card.drawTooltip(cardDef, x, y)
---   Card.drawLarge(cardDef, x, y, w)        → returns h
+--   Card.drawLarge(cardDef, x, y, w)        → face + info sticker, returns total h
 -- New:
 --   Card.layout(w, h)                       pure geometry (unit-tested)
 --   Card.drawFace(cardDef, x, y, w, h, opts) opts: stats, atkBonus, defBonus, exhausted, selected, target, alpha
 --   Card.drawBack(x, y, w, h, opts)         opts: label, canFlip, selected, target, alpha
 local Theme  = require("ui.theme")
+local Fonts  = require("ui.fonts")
 local Combat = require("engine.combat")
 local Draw   = require("ui.kit.draw")
 local Icons  = require("ui.kit.icons")
@@ -212,7 +213,8 @@ function Card.drawPitched(pitched, x, y, opts)
 
     if pitched.mode == "defense" then
         Card.drawBack(x, y, w, h, {
-            label = (not opts.faceDown) and "DEF" or nil, canFlip = opts.canFlip,
+            label = (not opts.faceDown) and (pitched.slotType == "trap" and "TRAP" or "DEF") or nil,
+            canFlip = opts.canFlip,
             selected = opts.selected, target = opts.target,
         })
         return
@@ -239,13 +241,19 @@ function Card.drawInHand(cardDef, x, y, opts)
     return { x = x, y = y, w = w, h = h }
 end
 
+local INFO_PAD = 12
+
+-- Height of the info sticker for cardDef at width w (wraps the ability text).
+function Card.infoHeight(cardDef, w)
+    local body = Fonts.body(12)
+    local _, lines = body:getWrap(cardDef.abilityText or "", w - INFO_PAD * 2)
+    return INFO_PAD + 22 + 16 + #lines * body:getHeight() + INFO_PAD
+end
+
 -- Info sticker: name, type · rarity, ability text. Returns its height.
 function Card.drawInfo(cardDef, x, y, w)
-    local Fonts = require("ui.fonts")
-    local pad = 12
-    local body = Fonts.body(12)
-    local _, lines = body:getWrap(cardDef.abilityText or "", w - pad * 2)
-    local h = pad + 22 + 16 + #lines * body:getHeight() + pad
+    local pad = INFO_PAD
+    local h = Card.infoHeight(cardDef, w)
     Draw.sticker(x, y, w, h, { r = 12, fill = Theme.white, border = 0, shadow = 4 })
     Draw.text(cardDef.name or "", x + pad, y + pad, w - pad * 2, "left",
         { size = 18, color = Theme.inkText, fit = true })
@@ -263,15 +271,29 @@ function Card.drawTooltip(cardDef, x, y)
     local W, H = love.graphics.getWidth(), love.graphics.getHeight()
     if x + w > W - 8 then x = W - 8 - w end
     if x < 8 then x = 8 end
+    local h = Card.infoHeight(cardDef, w)
+    if y + h + 4 > H - 8 then y = H - 8 - 4 - h end   -- +4: sticker shadow
     if y < 8 then y = 8 end
-    if y + 140 > H then y = H - 140 end
     Card.drawInfo(cardDef, x, y, w)
 end
 
+-- Big card face with the info sticker (ability text) below it, all kept inside the
+-- w-wide column starting at y: the face is inset so the overhanging ribbon, badges
+-- and top tag don't spill out. Returns the combined height.
 function Card.drawLarge(cardDef, x, y, w)
-    local h = math.floor(w * 148 / 108)
-    Card.drawFace(cardDef, x, y, w, h, {})
-    return h
+    local fw = math.floor(w * BASE_W / (BASE_W + 18))    -- room for 9*s overhang per side
+    local fh = math.floor(fw * 148 / 108)
+    local L  = Card.layout(fw, fh)
+    local top = math.ceil(L.tag.h / 2)
+    Card.drawFace(cardDef, x + math.floor((w - fw) / 2), y + top, fw, fh, {})
+    local bottom = top + fh
+    local t = cardDef.type
+    if t == "striker" or t == "defender" or t == "midfielder" or t == "keeper" then
+        bottom = top + L.atk.cy + L.atk.size * 0.5 + math.max(2, L.atk.size * 0.08)  -- badge + its shadow
+    end
+    local infoY = math.ceil(bottom) + 8
+    local infoH = Card.drawInfo(cardDef, x, y + infoY, w)
+    return infoY + infoH
 end
 
 return Card
