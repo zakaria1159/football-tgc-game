@@ -1,11 +1,15 @@
 -- Arcade drawing primitives. No scissor/stencil anywhere: rounded gradients and
 -- cropped images are triangle-fan meshes, so everything works inside canvases
 -- and under rotation transforms.
+-- Animate size with love.graphics.scale/rotate rather than by passing changing
+-- w/h — meshes are cached by (rounded) size.
+-- alpha / alphaMul fades each layer separately, so stacked layers (border under
+-- fill, shadow under text) show through at partial alpha; fade whole cards via
+-- a canvas instead.
 local Theme = require("ui.theme")
 local Fonts = require("ui.fonts")
 
 local Draw = {}
-local unpack = table.unpack or unpack
 
 -- ── Pure helpers (unit-tested) ────────────────────────────────────────────────
 
@@ -89,6 +93,10 @@ local _meshCache, _meshCount = {}, 0
 
 -- Filled rounded rect with a gradient (or flat) fill; optional image = cover-cropped texture.
 local function roundedMesh(x, y, w, h, r, c1, c2, dir, image)
+    w = math.floor(w + 0.5)
+    h = math.floor(h + 0.5)
+    r = math.floor(r + 0.5)
+    if w <= 0 or h <= 0 then return end
     local key = table.concat({ w, h, r, dir or "v",
         c1[1], c1[2], c1[3], c1[4] or 1, c2[1], c2[2], c2[3], c2[4] or 1,
         image and tostring(image) or "-" }, "|")
@@ -112,7 +120,10 @@ local function roundedMesh(x, y, w, h, r, c1, c2, dir, image)
         verts[#verts + 1] = vert(pts[1], pts[2])
         mesh = love.graphics.newMesh(verts, "fan", "static")
         if image then mesh:setTexture(image) end
-        if _meshCount > 600 then _meshCache, _meshCount = {}, 0 end
+        if _meshCount > 600 then
+            for _, m in pairs(_meshCache) do m:release() end
+            _meshCache, _meshCount = {}, 0
+        end
         _meshCache[key] = mesh
         _meshCount = _meshCount + 1
     end
@@ -308,6 +319,7 @@ end
 
 -- Diagonal stripes clipped to a rect (used for card backs and placeholders).
 function Draw.stripes(x, y, w, h, spacing, width, color, alphaMul)
+    if spacing <= 0 then return end
     Draw.setColor(color, alphaMul)
     love.graphics.setLineWidth(width)
     for o = -h, w, spacing do
@@ -331,5 +343,4 @@ function Draw.background(W, H)
     love.graphics.draw(_bgMesh)
 end
 
-Draw._unpack = unpack
 return Draw
