@@ -249,9 +249,10 @@ local function shieldPoints(cx, cy, s)
     }
 end
 
-local function badgeNumber(value, cx, cy, s, alpha)
+-- maxW: widest the number may be (circle interiors are narrower than shields).
+local function badgeNumber(value, cx, cy, s, alpha, maxW)
     local str = tostring(value)
-    local size = Draw.fitSize(str, s * 0.86, s * 0.40, 6, measureDisplay)
+    local size = Draw.fitSize(str, maxW or s * 0.86, s * 0.40, 6, measureDisplay)
     Draw.text(str, cx - s, cy - size * 0.58, s * 2, "center", {
         size = size, color = Theme.white, shadowY = math.max(1, math.floor(s * 0.05)), alpha = alpha,
     })
@@ -267,7 +268,7 @@ function Draw.atkBadge(cx, cy, s, value, alpha)
     local b = math.max(2, s * 0.08)
     Draw.setColor(Theme.grad.atk[2], alpha); love.graphics.circle("fill", cx, cy, r - b, 24)
     Draw.setColor(Theme.grad.atk[1], alpha); love.graphics.circle("fill", cx, cy - (r - b) * 0.18, (r - b) * 0.82, 24)
-    badgeNumber(value, cx, cy, s, alpha)
+    badgeNumber(value, cx, cy, s, alpha, s * 0.72)
 end
 
 -- Blue DEF shield. s = width. bonus > 0 adds a green "+N" tag above it.

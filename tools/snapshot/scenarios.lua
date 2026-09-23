@@ -20,4 +20,10 @@ S.match = {
     { 9.5, function(c) c.quit() end },
 }
 
+S.cards = {
+    { 0.3, function() love.draw = require("tools.snapshot.card_gallery").draw end },
+    { 1.0, function(c) c.snap("gallery") end },
+    { 1.5, function(c) c.quit() end },
+}
+
 return S
