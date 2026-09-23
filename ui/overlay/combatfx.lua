@@ -19,6 +19,12 @@ Fx.SHATTER_DUR = 0.80
 Fx.HINT        = 1.70   -- "CLICK OR SPACE" pill
 Fx.SLIDE_DIST  = 700
 Fx.SHAKE       = 10
+Fx.LUNGE       = 70     -- px the attacker lunges toward the defender at CLASH
+Fx.LUNGE_IN    = 0.12   -- ramp up before CLASH
+Fx.LUNGE_OUT   = 0.30   -- settle back after CLASH
+
+-- Card centres: the player's card is always on the left (your side of the pitch).
+Fx.SIDE_X = { left = 390, right = 890 }
 
 -- ── Easing ────────────────────────────────────────────────────────────────────
 
@@ -57,12 +63,36 @@ function Fx.shake(t)
     return Fx.SHAKE * (1 - k) * (1 - k) * math.sin(k * math.pi * 8)
 end
 
--- Everything the overlay needs at time t.
-function Fx.pose(t)
+-- Attacker lunge in [0, 1]: ramps up into CLASH, then settles back.
+function Fx.lunge(t)
+    if t < Fx.CLASH - Fx.LUNGE_IN or t > Fx.CLASH + Fx.LUNGE_OUT then return 0 end
+    if t <= Fx.CLASH then
+        local k = Fx.progress(t, Fx.CLASH - Fx.LUNGE_IN, Fx.LUNGE_IN)
+        return k * k
+    end
+    return 1 - Fx.quadout(Fx.progress(t, Fx.CLASH, Fx.LUNGE_OUT))
+end
+
+-- Which side each combatant is drawn on. The player's card is always on the left, so
+-- when the opponent attacks the attacker is on the right. dir: +1 = moves right.
+--   → { atk = { side, cx, dir }, def = { side, cx, dir } }
+function Fx.sides(activePlayer)
+    local atkSide = activePlayer == "opponent" and "right" or "left"
+    local defSide = atkSide == "left" and "right" or "left"
+    local function entry(side)
+        return { side = side, cx = Fx.SIDE_X[side], dir = side == "left" and 1 or -1 }
+    end
+    return { atk = entry(atkSide), def = entry(defSide) }
+end
+
+-- Everything the overlay needs at time t. atkSide ("left" default | "right"): each card
+-- slides in from its own side; the attacker lunges toward the defender at CLASH.
+function Fx.pose(t, atkSide)
     local p = {}
     local slide = Fx.backout(Fx.progress(t, 0, Fx.SLIDE))
-    p.atkX = -(1 - slide) * Fx.SLIDE_DIST
-    p.defX =  (1 - slide) * Fx.SLIDE_DIST
+    local dir = atkSide == "right" and -1 or 1          -- attacker's direction toward the defender
+    p.atkX = -dir * (1 - slide) * Fx.SLIDE_DIST + dir * Fx.LUNGE * Fx.lunge(t)
+    p.defX =  dir * (1 - slide) * Fx.SLIDE_DIST
     if t < Fx.SLIDE then
         p.sx, p.sy = 1, 1
     else

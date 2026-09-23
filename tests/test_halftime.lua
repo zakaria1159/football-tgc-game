@@ -315,3 +315,16 @@ T.test("AI mulligan: works for either seat and its choice is accepted by State.m
     T.eq(#c, 2)
     T.eq(State.mulligan(m, "player", c), 2)
 end)
+
+T.test("mulligan: two copies of the same card (same id, as in preset decks) can both go back", function()
+    local m = inBreak()
+    local p = m.players.player
+    local dup = H.def("trap-offside")
+    p.hand[1], p.hand[2] = dup, dup
+    local before = pool(m, "player")
+    T.eq(State.mulligan(m, "player", { dup.id, dup.id }), 2)
+    T.eq(#p.hand, 5); T.eq(pool(m, "player"), before, "same cards overall")
+    local m2 = inBreak()
+    m2.players.player.hand[1] = dup
+    T.eq(State.mulligan(m2, "player", { dup.id, dup.id }), 0, "only one copy in hand")
+end)

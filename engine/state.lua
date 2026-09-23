@@ -360,14 +360,15 @@ function State.mulligan(matchState, playerId, cardIds)
     if n == 0 then return 0 end
     if n > C.MATCH.MULLIGAN_MAX then return 0, "at most " .. C.MATCH.MULLIGAN_MAX .. " cards" end
 
-    local ps   = matchState.players[playerId]
-    local seen = {}
+    local ps = matchState.players[playerId]
+    -- Copies in a preset deck share an id, so an id may be chosen as many times as the
+    -- hand holds it (and no more).
+    local copies = {}
+    for _, c in ipairs(ps.hand) do copies[c.id] = (copies[c.id] or 0) + 1 end
     for _, id in ipairs(cardIds) do
-        if seen[id] then return 0, "card chosen twice" end
-        seen[id] = true
-        local inHand = false
-        for _, c in ipairs(ps.hand) do if c.id == id then inHand = true; break end end
-        if not inHand then return 0, "card not in hand" end
+        if not copies[id] then return 0, "card not in hand" end
+        if copies[id] == 0 then return 0, "card chosen twice" end
+        copies[id] = copies[id] - 1
     end
 
     for _, id in ipairs(cardIds) do
