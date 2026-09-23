@@ -23,6 +23,7 @@ local Hover         = require("ui.match.hover")
 local Zoom          = require("ui.match.zoom")
 local Tween         = require("ui.kit.tween")
 local Confetti      = require("ui.match.confetti")
+local DebugLog      = require("ui.match.debuglog")
 
 local Match = {}
 
@@ -374,11 +375,11 @@ function Match.draw()
         trapHitboxes = {}
     end
 
-    -- AI hand debug
-    if aiHandDebug then Match.drawAIHandDebug(match) end
+    -- AI hand debug (TAB)
+    if aiHandDebug then DebugLog.drawAIHand(match) end
 
-    -- Debug log panel (overlay, drawn last so it's on top)
-    if debugLogOpen then Match.drawDebugLog(match) end
+    -- Full match log (log button / L)
+    if debugLogOpen then debugLogScroll = DebugLog.draw(match, debugLogScroll) end
 
     if match.winner then Match.drawWinScreen(match) end
 
@@ -1141,163 +1142,12 @@ function Match.drawScoutReveal(pitchedCard)
     end)
 end
 
--- ── Debug log panel ──────────────────────────────────────────────────────────
-
-local function fmtPayload(p)
-    if not p then return "" end
-    local parts = {}
-    local order = { "player","ability","name","cardName","slot","slotType","slotIndex","outcome",
-                    "damage","half","winner","turn","reason","unimplemented" }
-    local seen = {}
-    for _, k in ipairs(order) do
-        if p[k] ~= nil then
-            local v = p[k]
-            if type(v) == "table" then v = "{"..table.concat((function()
-                local t={}; for kk,vv in pairs(v) do table.insert(t,kk.."="..tostring(vv)) end; return t
-            end)(), ",").."}" end
-            table.insert(parts, k.."="..tostring(v)); seen[k] = true
-        end
-    end
-    for k, v in pairs(p) do
-        if not seen[k] then
-            if type(v) == "table" then v = "{...}" end
-            table.insert(parts, k.."="..tostring(v))
-        end
-    end
-    return table.concat(parts, "  ")
-end
-
-local function logLineColor(evType)
-    if evType == "card_played" or evType == "card_drawn" then return {0.55, 0.90, 0.55} end
-    if evType == "strategy_played"                       then return {0.40, 0.85, 1.00} end
-    if evType == "trap_activated"                        then return {0.90, 0.55, 1.00} end
-    if evType == "attack_declared" or evType == "cover"  then return {1.00, 0.80, 0.30} end
-    if evType == "lp_damage"                             then return {1.00, 0.35, 0.35} end
-    if evType == "defender_destroy"                      then return {1.00, 0.55, 0.20} end
-    if evType == "shot"                                  then return {0.30, 0.80, 1.00} end
-    if evType == "turn_end"                              then return {0.50, 0.50, 0.60} end
-    if evType == "half_end"                              then return {1.00, 0.85, 0.20} end
-    if evType == "attack_wasted"                         then return {0.55, 0.55, 0.55} end
-    return {0.75, 0.75, 0.80}
-end
-
-function Match.drawDebugLog(match)
-    local W = love.graphics.getWidth()
-    local H = love.graphics.getHeight()
-    local panW = 520
-    local panH = H - 48
-    local panX = (W - panW) / 2
-    local panY = 28
-
-    -- Background
-    love.graphics.setColor(0.04, 0.04, 0.10, 0.96)
-    love.graphics.rectangle("fill", panX, panY, panW, panH, 8)
-    love.graphics.setColor(0.30, 0.55, 1.00, 0.70)
-    love.graphics.setLineWidth(1.5)
-    love.graphics.rectangle("line", panX, panY, panW, panH, 8)
-    love.graphics.setLineWidth(1)
-
-    -- Title
-    Fonts.with(11, function()
-        love.graphics.setColor(0.50, 0.75, 1.00, 1)
-        love.graphics.printf("DEBUG LOG  ·  " .. #match.log .. " events  (scroll: wheel,  close: L)",
-            panX, panY + 7, panW, "center")
-    end)
-
-    local lineH    = 17
-    local padX     = 12
-    local innerY   = panY + 28
-    local innerH   = panH - 36
-    local maxLines = math.floor(innerH / lineH)
-
-    -- Build display lines (newest at bottom)
-    local lines = {}
-    for _, entry in ipairs(match.log) do
-        local prefix = string.format("[H%s T%02d %s] %-20s",
-            tostring(entry.half), entry.turn, entry.phase:sub(1,3):upper(), entry.type)
-        local detail = fmtPayload(entry.payload)
-        table.insert(lines, { prefix = prefix, detail = detail, evType = entry.type })
-    end
-
-    local total   = #lines
-    local maxScroll = math.max(0, total - maxLines)
-    debugLogScroll  = math.max(0, math.min(debugLogScroll, maxScroll))
-
-    local startIdx = math.max(1, total - maxLines - debugLogScroll + 1)
-    local endIdx   = total - debugLogScroll   -- empty log: loop runs zero times
-
-    love.graphics.setScissor(panX + padX, innerY, panW - padX*2, innerH)
-    local y = innerY
-    for i = startIdx, endIdx do
-        local ln  = lines[i]
-        local col = logLineColor(ln.evType)
-        Fonts.with(8, function()
-            love.graphics.setColor(col[1] * 0.65, col[2] * 0.65, col[3] * 0.65, 1)
-            love.graphics.print(ln.prefix, panX + padX, y)
-            love.graphics.setColor(col[1], col[2], col[3], 1)
-            love.graphics.print(ln.detail, panX + padX + 210, y)
-        end)
-        y = y + lineH
-    end
-    love.graphics.setScissor()
-
-    -- Scroll indicator
-    if maxScroll > 0 then
-        local trackH = innerH - 4
-        local thumbH = math.max(20, trackH * maxLines / total)
-        local thumbT = (maxScroll - debugLogScroll) / maxScroll
-        local thumbY = innerY + 2 + thumbT * (trackH - thumbH)
-        love.graphics.setColor(0.30, 0.55, 1.00, 0.40)
-        love.graphics.rectangle("fill", panX + panW - 8, innerY, 5, trackH, 2)
-        love.graphics.setColor(0.50, 0.75, 1.00, 0.90)
-        love.graphics.rectangle("fill", panX + panW - 8, thumbY, 5, thumbH, 2)
-    end
-end
-
 function Match.getCardInSlot(pitch, slot)
     if slot.slotType == "keeper"     then return pitch.keeper end
     if slot.slotType == "midfielder" then return pitch.midfielder end
     if slot.slotType == "defender"   then return pitch.defenders[slot.slotIndex] end
     if slot.slotType == "striker"    then return pitch.strikers[slot.slotIndex] end
     return nil
-end
-
-function Match.drawAIHandDebug(match)
-    local o   = match.players.opponent
-    local W   = Layout.W
-    local H   = love.graphics.getHeight()
-    local panW = 340
-    local panH = math.min(H - 80, 20 + #o.hand * 22 + 16)
-    local panX = (W - panW) / 2
-    local panY = 96
-
-    love.graphics.setColor(0.05, 0.05, 0.12, 0.94)
-    love.graphics.rectangle("fill", panX, panY, panW, panH, 8)
-    love.graphics.setColor(0.85, 0.65, 0.15, 1)
-    love.graphics.setLineWidth(2)
-    love.graphics.rectangle("line", panX, panY, panW, panH, 8)
-    love.graphics.setLineWidth(1)
-    love.graphics.setColor(0.85, 0.65, 0.15, 1)
-    love.graphics.printf("AI HAND  (" .. #o.hand .. " cards)", panX, panY + 6, panW, "center")
-
-    local y = panY + 26
-    for _, card in ipairs(o.hand) do
-        if y > panY + panH - 18 then
-            love.graphics.setColor(0.55, 0.55, 0.60, 1)
-            love.graphics.printf("...", panX + 10, y, panW - 20, "left")
-            break
-        end
-        local col = Theme.cardColors[card.type]
-        if col then love.graphics.setColor(col[1], col[2], col[3], 1)
-        else         love.graphics.setColor(0.7, 0.7, 0.7, 1) end
-        local stat = ""
-        if card.stats then
-            stat = "  A" .. (card.stats.atk or 0) .. "/D" .. (card.stats.def or 0)
-        end
-        love.graphics.printf("[" .. card.type:sub(1,3):upper() .. "] " .. card.name .. stat,
-            panX + 10, y, panW - 20, "left")
-        y = y + 20
-    end
 end
 
 -- Dev hook for tools/snapshot scenarios.

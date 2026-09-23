@@ -151,4 +151,21 @@ S.juice = {
     { 5.0,  function(c) c.quit() end },
 }
 
+-- Top-bar icons: log panel, AI hand (TAB), pause menu.
+S.debug = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, function() love.keypressed("return") end },
+    { 1.5, function() click(center(Layout.top.log)) end },
+    { 2.0, function(c) c.snap("log") end },
+    { 2.1, function() love.keypressed("l") end },
+    { 2.2, function() love.keypressed("tab") end },
+    { 2.6, function(c) c.snap("aihand") end },
+    { 2.7, function() love.keypressed("tab") end },
+    { 2.8, function() click(center(Layout.top.pause)) end },
+    { 3.2, function(c) c.snap("pause") end },
+    { 3.3, function() love.keypressed("escape") end },
+    { 3.6, function(c) c.snap("resumed") end },
+    { 4.0, function(c) c.quit() end },
+}
+
 return S
