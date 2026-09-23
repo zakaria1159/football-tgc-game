@@ -347,4 +347,18 @@ S.trapwin = {
     { 2.6,  function(c) c.quit() end },
 }
 
+-- Scout reveal (synthetic, harness-only): flip, shown, shrinking, gone.
+S.scout = {
+    { 0.3,  function() math.randomseed(7) end },
+    { 0.5,  kickOff },
+    { 1.5,  function()
+        require("scenes.match").debugOverlay("scout", pitched("keeper-iron-fists", "keeper", "defense"))
+    end },
+    { 1.75, function(c) c.snap("flip") end },
+    { 2.4,  function(c) c.snap("shown") end },
+    { 4.85, function(c) c.snap("shrink") end },
+    { 5.2,  function(c) c.snap("gone") end },
+    { 5.5,  function(c) c.quit() end },
+}
+
 return S

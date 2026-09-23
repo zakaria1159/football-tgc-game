@@ -10,6 +10,7 @@ local CombatFx           = require("ui.overlay.combatfx")
 local TrapActivOverlay   = require("ui.overlay.trapactivation")
 local Prompts            = require("ui.overlay.prompts")
 local PromptPanel        = require("ui.overlay.promptpanel")
+local Reveal             = require("ui.overlay.reveal")
 local AI            = require("ai.opponent")
 local Audio         = require("ui.audio")
 local Character     = require("ui.character")
@@ -179,7 +180,11 @@ function Match.update(dt)
     end
     lastLogLen = #log
     if scoutReveal then
-        scoutReveal.timer = scoutReveal.timer - dt
+        -- Capped step, like combatT/trapActivT: a stall (e.g. a snapshot capture) must
+        -- not skip the flip or empty the timer in one frame.
+        local step = math.min(dt, 1 / 30)
+        scoutReveal.t     = (scoutReveal.t or 0) + step
+        scoutReveal.timer = scoutReveal.timer - step
         if scoutReveal.timer <= 0 then scoutReveal = nil end
     end
 
@@ -352,7 +357,7 @@ function Match.draw()
 
     -- Scout Report reveal overlay
     if scoutReveal then
-        Match.drawScoutReveal(scoutReveal.card)
+        Reveal.draw(scoutReveal.card, scoutReveal.t or 0, scoutReveal.timer)
     end
 
     -- Cover prompt (player defending against opponent attack)
@@ -763,7 +768,7 @@ function Match.mousepressed(x, y, button)
                     })
                     if result then
                         Audio.play("card_play_strategy")
-                        scoutReveal = { card = result.revealedCard, timer = 3.5 }
+                        scoutReveal = { card = result.revealedCard, timer = 3.5, t = 0 }
                     elseif err then
                         Match.flash(err)
                     end
@@ -995,55 +1000,6 @@ function Match.spawnDrawAnim(isPlayer)
     end
     Audio.play("card_summon", 0.35)
     table.insert(drawAnims, da)
-end
-
-function Match.drawScoutReveal(pitchedCard)
-    local W, H = love.graphics.getWidth(), love.graphics.getHeight()
-    love.graphics.setColor(0, 0, 0, 0.72)
-    love.graphics.rectangle("fill", 0, 0, W, H)
-
-    local pw, ph = 260, 340
-    local px, py = math.floor((W - pw) / 2), math.floor((H - ph) / 2)
-    love.graphics.setColor(0.06, 0.03, 0.12, 1)
-    love.graphics.rectangle("fill", px, py, pw, ph, 8)
-    love.graphics.setColor(0.30, 0.55, 1.0, 0.85)
-    love.graphics.setLineWidth(2)
-    love.graphics.rectangle("line", px, py, pw, ph, 8)
-    love.graphics.setLineWidth(1)
-
-    Fonts.with(11, function()
-        love.graphics.setColor(0.30, 0.75, 1.0, 1)
-        love.graphics.printf("SCOUT REPORT", px, py + 13, pw, "center")
-    end)
-
-    if pitchedCard then
-        local cw, ch = 110, 148
-        local cx = px + math.floor((pw - cw) / 2)
-        local cy = py + 42
-        Card.drawFace(pitchedCard.definition, cx, cy, cw, ch, {})
-        local d     = pitchedCard.definition
-        local stats = d.stats or {}
-        Fonts.with(11, function()
-            love.graphics.setColor(0.957, 0.914, 0.824, 1)
-            love.graphics.printf(d.name or "", px + 8, cy + ch + 10, pw - 16, "center")
-        end)
-        Fonts.with(9, function()
-            love.graphics.setColor(Theme.atkColor)
-            love.graphics.printf("ATK " .. tostring(stats.atk or 0), px + 8, cy + ch + 28, pw/2 - 8, "center")
-            love.graphics.setColor(Theme.defColor)
-            love.graphics.printf("DEF " .. tostring(stats.def or 0), px + pw/2, cy + ch + 28, pw/2 - 8, "center")
-        end)
-    else
-        Fonts.with(11, function()
-            love.graphics.setColor(0.55, 0.55, 0.60, 1)
-            love.graphics.printf("No card in that slot", px + 10, py + ph/2 - 8, pw - 20, "center")
-        end)
-    end
-
-    Fonts.with(9, function()
-        love.graphics.setColor(0.38, 0.38, 0.42, 0.85)
-        love.graphics.printf("Click to dismiss", px, py + ph - 20, pw, "center")
-    end)
 end
 
 function Match.getCardInSlot(pitch, slot)
