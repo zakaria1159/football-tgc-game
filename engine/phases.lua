@@ -582,6 +582,10 @@ function Phases.endTurn(matchState)
         end
     end
 
+    -- Keeper bonus timing: the new active player's cards that attacked count toward
+    -- their keeper's effective DEF again from now on.
+    Phases._clearAttackerFlags(matchState.players[matchState.activePlayer].pitch)
+
     matchState.phase       = "draw"
     matchState.summonCount = 0
 
@@ -606,6 +610,16 @@ function Phases.endTurn(matchState)
     if halfWinner then
         State.endHalf(matchState, halfWinner, reason)
     end
+end
+
+-- Clears the "attacked" flag on every card of a pitch (start of its owner's turn).
+-- Numeric loops: a slot may be empty in front of an occupied one.
+function Phases._clearAttackerFlags(pitch)
+    local function clear(c) if c then c.usedAsAttacker = false end end
+    clear(pitch.keeper)
+    clear(pitch.midfielder)
+    for i = 1, C.PITCH.MAX_DEFENDERS do clear(pitch.defenders[i]) end
+    for i = 1, C.PITCH.MAX_STRIKERS  do clear(pitch.strikers[i])  end
 end
 
 -- ─── Slot helpers ─────────────────────────────────────────────────────────────

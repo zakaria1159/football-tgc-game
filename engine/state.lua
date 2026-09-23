@@ -70,7 +70,7 @@ function State.newPitchedCard(definition, slotType, mode)
         exhausted         = false,
         mode              = mode or "attack",   -- "attack" or "defense"
         cannotActNextTurn = false,              -- set true after covering
-        usedAsAttacker    = false,              -- set true permanently after card initiates an attack
+        usedAsAttacker    = false,              -- set when it attacks; cleared at the start of its owner's turn
         slotType          = slotType or definition.type,
     }
 end

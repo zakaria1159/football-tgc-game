@@ -15,7 +15,7 @@ function Combat.getStat(card, role)
 end
 
 -- Keeper effective DEF = base DEF + (active defenders × 300) + (active midfielder × 150)
--- Active = card exists and has not been used as an attacker this turn.
+-- Active = card exists and has not attacked since the start of its owner's latest turn.
 function Combat.keeperEffectiveDef(keeper, pitch)
     local base = (keeper.definition.stats and keeper.definition.stats.def) or 0
     local bonus = 0
