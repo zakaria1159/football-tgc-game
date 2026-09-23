@@ -5,7 +5,8 @@ local Draw          = require("ui.kit.draw")
 local Pitch         = require("ui.pitch")
 local Hand          = require("ui.hand")
 local Card          = require("ui.card")
-local CombatOverlay      = require("ui.combat_overlay")
+local CombatOverlay      = require("ui.overlay.combat")
+local CombatFx           = require("ui.overlay.combatfx")
 local TrapActivOverlay   = require("ui.trap_activation_overlay")
 local CoverPrompt        = require("ui.cover_prompt")
 local AI            = require("ai.opponent")
@@ -69,14 +70,7 @@ local trapHitboxes  = {}
 local flyingCards = {}
 local drawAnims   = {}   -- card-draw flying animations
 local pitchAnims  = { hidden = {}, pop = {} }   -- summon squash-pop state, read by Pitch.draw
-local overlayAnim = {
-    panelY      = 0,    -- panel vertical offset (starts off-screen, tweens to 0)
-    atkOffX     = 0,    -- attacker card horizontal offset (slides from left)
-    defOffX     = 0,    -- defender card horizontal offset (slides from right)
-    clashX      = 0,    -- clash intensity (0=calm, 1=full clash)
-    resultAlpha = 0,    -- result text/pill fade-in
-    shakeX      = 0,    -- horizontal shake at clash moment
-}
+local combatT     = 0   -- seconds since the active combat overlay opened (ui/overlay/combatfx.lua)
 
 -- Toasts (log events) and ribbon banner (Match.flash)
 local toasts = Toasts.new()
@@ -111,6 +105,7 @@ function Match.enter(matchStore, difficulty)
     scoutReveal         = nil
     combatQueue         = {}
     activeCombat        = nil
+    combatT             = 0
     trapActivQueue      = {}
     activeTrapActiv     = nil
     coverHitboxes       = {}
@@ -182,36 +177,20 @@ function Match.update(dt)
         if scoutReveal.timer <= 0 then scoutReveal = nil end
     end
 
+    -- Combat overlay: dequeue, then advance its timeline (ui/overlay/combatfx.lua).
     if not activeCombat and #combatQueue > 0 then
         activeCombat = table.remove(combatQueue, 1)
-
-        -- Phase 1: panel + cards slide in (0 → 0.35s)
-        local H = love.graphics.getHeight()
-        overlayAnim.panelY      = H * 0.55
-        overlayAnim.atkOffX     = -380
-        overlayAnim.defOffX     = 380
-        overlayAnim.clashX      = 0
-        overlayAnim.resultAlpha = 0
-        overlayAnim.shakeX      = 0
-
-        flux.to(overlayAnim, 0.32, { panelY = 0 }):ease("backout")
-        flux.to(overlayAnim, 0.32, { atkOffX = 0 }):ease("quadout")
-        flux.to(overlayAnim, 0.32, { defOffX = 0 }):ease("quadout")
-
-        -- Phase 2: clash (0.38s → 0.62s) — cards surge toward center, screen shakes
-        flux.to(overlayAnim, 0.22, { clashX = 1 }):delay(0.38):ease("quadout")
-            :oncomplete(function()
-                -- screen shake on clash
-                overlayAnim.shakeX = 7
-                flux.to(overlayAnim, 0.28, { shakeX = 0 }):ease("elasticout")
-                -- LP damage: banner + confetti
-                if activeCombat and activeCombat.damage and activeCombat.damage > 0 then
-                    Match.onLPDamage(match.activePlayer, activeCombat.outcome == "damage")
-                end
-                -- Phase 3: clash recedes, result fades in (0.62s → 1.0s)
-                flux.to(overlayAnim, 0.18, { clashX = 0.15 }):ease("quadin")
-                flux.to(overlayAnim, 0.38, { resultAlpha = 1 }):ease("quadout")
-            end)
+        combatT = 0
+    end
+    if activeCombat then
+        local prevT = combatT
+        -- Capped step: a first-draw hitch (fonts, canvases) must not skip the animation.
+        combatT = combatT + math.min(dt, 1 / 30)
+        -- LP damage: banner + confetti when the cards clash
+        if CombatFx.crossed(prevT, combatT, CombatFx.CLASH)
+           and activeCombat.damage and activeCombat.damage > 0 then
+            Match.onLPDamage(match.activePlayer, activeCombat.outcome == "damage")
+        end
     end
 
     -- Dequeue a trap activation overlay (only when no combat overlay is blocking)
@@ -350,7 +329,7 @@ function Match.draw()
 
     -- Combat overlay — drawn directly (backdrop must cover full screen)
     if activeCombat then
-        CombatOverlay.draw(activeCombat, overlayAnim)
+        CombatOverlay.draw(activeCombat, combatT)
     end
 
     -- Trap activation overlay (cinematic reveal, shown after combat if both pending)
@@ -1160,6 +1139,18 @@ end
 
 -- Dev hook for tools/snapshot scenarios.
 function Match.debugStore() return store end
+
+-- Dev hook for tools/snapshot scenarios: show a synthetic overlay.
+--   kind = "combat" (store combat record) | "trap" (trap activation record) | "scout" (pitched card)
+function Match.debugOverlay(kind, rec)
+    if kind == "combat" then
+        table.insert(combatQueue, rec)
+    elseif kind == "trap" then
+        table.insert(trapActivQueue, rec)
+    elseif kind == "scout" then
+        scoutReveal = { card = rec, timer = 3.5, t = 0 }
+    end
+end
 
 function Match.inRect(x, y, rect)
     return x >= rect.x and x <= rect.x + rect.w

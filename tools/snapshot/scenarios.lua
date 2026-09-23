@@ -34,6 +34,25 @@ local function firstOf(types)
     return nil
 end
 
+-- Card definition by id (synthetic overlay records).
+local function defById(id)
+    for _, f in ipairs({ "strikers", "midfielders", "defenders", "keepers", "traps", "strategies" }) do
+        for _, d in ipairs(require("engine.cards.definitions." .. f)) do
+            if d.id == id then return d end
+        end
+    end
+    error("no card " .. id)
+end
+
+-- Combat snapshot like store:_snapshotAttack, from a card id plus overrides.
+local function snapFrom(id, over)
+    local d = defById(id)
+    local s = { name = d.name, type = d.type, mode = "attack", wasHidden = false,
+                atk = d.stats.atk, def = d.stats.def, atkBonus = 0, defBonus = 0, isKeeper = false }
+    for k, v in pairs(over or {}) do s[k] = v end
+    return s
+end
+
 -- Point 70px above the bottom of a hand card at rest (inside it despite rotation).
 local function handPoint(card)
     local h = hand()
@@ -214,6 +233,38 @@ S.pause = {
     { 3.7, function() click(center(require("ui.menu.pause").buttonRect(1))) end },   -- RESUME
     { 4.1, function(c) c.snap("resumed") end },
     { 4.5, function(c) c.quit() end },
+}
+
+-- Combat overlay: destroyed (face-down defender flips, shatter), keeper save (Eff. DEF
+-- bonus tag), LP damage. Synthetic records via Match.debugOverlay (harness-only).
+local function combat(rec) return function() require("scenes.match").debugOverlay("combat", rec) end end
+S.combat = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, kickOff },
+    { 1.5, combat({
+        attacker = snapFrom("str-clinical-finisher", { atk = 2500, atkBonus = 200 }),
+        defender = snapFrom("def-destroyer", { mode = "defense", wasHidden = true }),
+        outcome = "defender_destroyed", margin = 600, damage = 0, activePlayer = "player" }) },
+    { 1.56, function(c) c.snap("slide") end },
+    { 2.2,  function(c) c.snap("clash") end },
+    { 2.5,  function(c) c.snap("count") end },
+    { 3.0,  function(c) c.snap("shatter") end },
+    { 3.6,  function(c) c.snap("destroyed") end },
+    { 3.7,  function() love.keypressed("space") end },
+    { 3.8,  combat({
+        attacker = snapFrom("str-poacher"),
+        defender = snapFrom("keeper-iron-fists", { def = 2250, isKeeper = true }),
+        outcome = "save", margin = -250, damage = 0, activePlayer = "opponent" }) },
+    { 5.9,  function(c) c.snap("save") end },
+    { 6.0,  function() love.keypressed("space") end },
+    { 6.1,  combat({
+        attacker = snapFrom("str-speed-demon"),
+        defender = snapFrom("keeper-reliable-hands", { isKeeper = true }),
+        outcome = "damage", margin = 500, damage = 500, activePlayer = "player" }) },
+    { 8.2,  function(c) c.snap("damage") end },
+    { 8.3,  function() love.keypressed("space") end },
+    { 8.6,  function(c) c.snap("dismissed") end },
+    { 8.9,  function(c) c.quit() end },
 }
 
 return S
