@@ -262,6 +262,16 @@ function Phases.activateTrap(matchState, playerId, trapIndex)
     return trap.definition
 end
 
+-- An attack cancelled by Offside: the attacker is exhausted but not destroyed; Hard tackle
+-- may also lock it. attackerId owns the attacker; defenderSlot is the declared target.
+function Phases.cancelAttack(matchState, attackerId, attackerSlot, defenderSlot)
+    local attacker = Phases._getSlotForPlayer(matchState, attackerId, attackerSlot)
+    if not attacker then return end
+    attacker.exhausted = true
+    local target = defenderSlot and Phases._getSlotForPlayer(matchState, State.other(attackerId), defenderSlot)
+    Resolver.onAttackCancelled(matchState, attackerId, attacker, target)
+end
+
 -- ─── ATTACK ───────────────────────────────────────────────────────────────────
 
 -- Resolve an attack. defenderSlot may point to an empty slot.
@@ -513,12 +523,25 @@ function Phases._doCombat(matchState, attacker, defender, attackerSlot, defender
         end
 
     elseif result.outcome == "tie" then
-        Phases._destroyCard(matchState, activeId, attackerSlot.type, attackerSlot.index or 0)
-        Phases._destroyCard(matchState, opponentId, defenderSlot.type, defenderSlot.index or 0)
-        State.log(matchState, T.EventType.DEFENDER_DESTROY, { slot = defenderSlot })
+        -- Immovable: that card survives a tie; only the other one is destroyed.
+        if Resolver.survivesTie(attacker) then
+            attacker.exhausted = true
+            result.attackerDestroyed = false
+            Resolver.trigger(matchState, activeId, attacker, "IMMOVABLE", nil, result)
+        else
+            Phases._destroyCard(matchState, activeId, attackerSlot.type, attackerSlot.index or 0)
+        end
+        if Resolver.survivesTie(defender) then
+            result.defenderDestroyed = false
+            Resolver.trigger(matchState, opponentId, defender, "IMMOVABLE", nil, result)
+        else
+            Phases._destroyCard(matchState, opponentId, defenderSlot.type, defenderSlot.index or 0)
+            State.log(matchState, T.EventType.DEFENDER_DESTROY, { slot = defenderSlot })
+        end
 
     else  -- attacker lost: always destroyed + LP damage (face-down or face-up)
         Phases._destroyCard(matchState, activeId, attackerSlot.type, attackerSlot.index or 0)
+        result.attackerDestroyed = true
         local penalty = -result.margin  -- margin is negative, so penalty > 0
         State.dealDamage(matchState, opponentId, penalty)
         result.damage = penalty
@@ -528,6 +551,11 @@ function Phases._doCombat(matchState, attacker, defender, attackerSlot, defender
               source = defenderFaceDown and "facedown_penalty" or "battle_damage" })
     end
 
+    -- Hard tackle, Build-up
+    Resolver.onFightResolved(matchState, {
+        attackerId = activeId, defenderId = opponentId,
+        attacker = attacker, defender = defender, result = result,
+    })
     return result
 end
 
@@ -570,6 +598,8 @@ function Phases._goalAttempt(matchState, striker, keeper, attackerSlot, opponent
             { outcome = "save", margin = result.margin })
     end
 
+    -- Clinical, Punch clear
+    Resolver.onShotResolved(matchState, activeId, striker, keeper, result)
     return result
 end
 
@@ -578,20 +608,23 @@ end
 function Phases.endTurn(matchState)
     local activeId = matchState.activePlayer
 
-    -- Only the active player's cards recover
+    -- Only the active player's cards recover. A card locked this turn (Hard tackle, Punch
+    -- clear: lockedNextTurn) can't act on its owner's next turn. Numeric loops: a slot may be
+    -- empty in front of an occupied one.
     local function recoverPitch(pitch)
         local function recoverCard(c)
             if c then
                 c.exhausted         = false
-                c.cannotActNextTurn = false
+                c.cannotActNextTurn = c.lockedNextTurn == true
+                c.lockedNextTurn    = nil
                 c.summonedThisTurn  = false
                 c.modeChanged       = false
             end
         end
         recoverCard(pitch.keeper)
         recoverCard(pitch.midfielder)
-        for _, c in ipairs(pitch.defenders) do recoverCard(c) end
-        for _, c in ipairs(pitch.strikers)  do recoverCard(c) end
+        for i = 1, C.PITCH.MAX_DEFENDERS do recoverCard(pitch.defenders[i]) end
+        for i = 1, C.PITCH.MAX_STRIKERS  do recoverCard(pitch.strikers[i])  end
     end
 
     recoverPitch(matchState.players[activeId].pitch)

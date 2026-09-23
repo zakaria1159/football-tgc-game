@@ -139,7 +139,8 @@ end
 -- Resolve a shot at the goal. keeper == nil → open goal: a goal for the full shot ATK.
 -- penaltyMode = true → the keeper's penalty DEF (Combat.keeperDef).
 -- attackerSlotType: only a striker-slot shooter gets the midfielder card ATK bonus.
--- Returns { outcome, damage, margin, openGoal, atkStat, defStat, atkParts, defParts }
+-- Clinical: a tie is a goal for C.ABILITY.CLINICAL_DAMAGE (result.clinical = true).
+-- Returns { outcome, damage, margin, openGoal, clinical, atkStat, defStat, atkParts, defParts }
 -- outcome: "damage" | "tie" | "save"
 function Combat.resolveShot(striker, keeper, oppPitch, strikerPitch, penaltyMode, attackerSlotType)
     local atkStat, atkParts = Combat.attackStat(striker, attackerSlotType, strikerPitch, oppPitch,
@@ -151,19 +152,22 @@ function Combat.resolveShot(striker, keeper, oppPitch, strikerPitch, penaltyMode
     local defStat, defParts = Combat.keeperDef(keeper, oppPitch, penaltyMode)
     local margin  = atkStat - defStat
 
-    local outcome, damage
+    local outcome, damage, clinical
     if margin > 0 then
         outcome = "damage"
         damage  = margin
     elseif margin == 0 then
-        outcome = "tie"
-        damage  = 0
+        if Resolver.clinical(striker) then
+            outcome, damage, clinical = "damage", C.ABILITY.CLINICAL_DAMAGE, true
+        else
+            outcome, damage = "tie", 0
+        end
     else
         outcome = "save"
         damage  = 0
     end
 
-    return { outcome = outcome, damage = damage, margin = margin,
+    return { outcome = outcome, damage = damage, margin = margin, clinical = clinical,
              atkStat = atkStat, defStat = defStat, atkParts = atkParts, defParts = defParts }
 end
 

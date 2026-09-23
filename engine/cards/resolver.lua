@@ -226,4 +226,60 @@ function R.penaltyFullDef(keeper)
     return R.has(keeper, "FORTRESS")
 end
 
+-- ── Rule hooks ────────────────────────────────────────────────────────────────
+
+-- Clinical: a shot tie becomes a goal for C.ABILITY.CLINICAL_DAMAGE (Combat.resolveShot).
+function R.clinical(shooter)
+    return R.has(shooter, "CLINICAL")
+end
+
+-- Immovable: this card survives a tie (engine/phases.lua _doCombat).
+function R.survivesTie(pitched)
+    return R.has(pitched, "IMMOVABLE")
+end
+
+-- After a shot (engine/phases.lua _goalAttempt).
+--   Clinical: the tie was turned into a goal (Combat.resolveShot sets result.clinical).
+--   Punch clear: after this keeper's save, the shooter can't act on its owner's next turn
+--   (pitched.lockedNextTurn, turned into cannotActNextTurn at the end of this turn).
+function R.onShotResolved(matchState, shooterId, shooter, keeper, result)
+    if result.clinical then R.trigger(matchState, shooterId, shooter, "CLINICAL", nil, result) end
+    if result.outcome == "save" and R.has(keeper, "PUNCH_CLEAR") then
+        shooter.lockedNextTurn = true
+        R.trigger(matchState, State.other(shooterId), keeper, "PUNCH_CLEAR", nil, result)
+    end
+end
+
+-- After a fight (declared attack, advance or cover), once destroyed cards are gone.
+--   f = { attackerId, defenderId, attacker, defender, result }; result.attackerDestroyed /
+--   result.defenderDestroyed say who is gone.
+--   Hard tackle: an attacker that fought a Hard tackle card and survived is locked for its
+--   owner's next turn.
+--   Build-up: a Build-up card that destroyed the other card and survived draws its owner
+--   1 card (nothing when the deck is empty).
+function R.onFightResolved(matchState, f)
+    local r = f.result
+    if R.has(f.defender, "HARD_TACKLE") and not r.attackerDestroyed then
+        f.attacker.lockedNextTurn = true
+        R.trigger(matchState, f.defenderId, f.defender, "HARD_TACKLE", nil, r)
+    end
+    local function buildUp(card, ownerId, won)
+        if not (won and R.has(card, "BUILD_UP")) then return end
+        local drawn = State.drawCard(matchState, ownerId)
+        if not drawn then return end
+        R.trigger(matchState, ownerId, card, "BUILD_UP", nil, r)
+        State.log(matchState, "card_drawn", { player = ownerId, card = drawn.id, source = "build_up" })
+    end
+    buildUp(f.attacker, f.attackerId, r.defenderDestroyed and not r.attackerDestroyed)
+    buildUp(f.defender, f.defenderId, r.attackerDestroyed and not r.defenderDestroyed)
+end
+
+-- Offside cancelled an attack (engine/phases.lua Phases.cancelAttack). Hard tackle: when the
+-- declared target is a Hard tackle card, the attacker is locked for its owner's next turn.
+function R.onAttackCancelled(matchState, attackerId, attacker, target)
+    if not R.has(target, "HARD_TACKLE") then return end
+    attacker.lockedNextTurn = true
+    R.trigger(matchState, State.other(attackerId), target, "HARD_TACKLE")
+end
+
 return R

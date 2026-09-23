@@ -180,8 +180,7 @@ function Store:declareAttack(attackerSlot, defenderSlot)
             else
                 -- Auto-fire AI OFFSIDE
                 local trapDef = Phases.activateTrap(match, "opponent", aiOffsideIdx)
-                local attCard = Phases._getSlotForPlayer(match, "player", attackerSlot)
-                if attCard then attCard.exhausted = true end
+                Phases.cancelAttack(match, "player", attackerSlot, defenderSlot)
                 local atkName = snap.attacker and snap.attacker.name or "Striker"
                 self:_pushTrapActivation("opponent", trapDef or aiOffside.definition,
                     "Your " .. atkName .. " was caught offside!")
@@ -391,8 +390,7 @@ function Store:resolveTrap(trapSlotIndex)
         else
             -- Player passes — AI's OFFSIDE fires
             Phases.activateTrap(match, "opponent", tw.aiTrapIdx)
-            local attCard = Phases._getSlotForPlayer(match, "player", tw.attackerSlot)
-            if attCard then attCard.exhausted = true end
+            Phases.cancelAttack(match, "player", tw.attackerSlot, tw.defenderSlot)
             local atkName = tw.attackerSnap and tw.attackerSnap.name or "Striker"
             self:_pushTrapActivation("opponent", tw.aiTrapCard.definition,
                 "Your " .. atkName .. " was caught offside!")
@@ -441,8 +439,7 @@ function Store:resolveTrap(trapSlotIndex)
         local ctxText = ""
 
         if tw.type == "pre_attack" and ability == "OFFSIDE" then
-            local attCard = Phases._getSlotForPlayer(match, opponentId, tw.attackerSlot)
-            if attCard then attCard.exhausted = true end
+            Phases.cancelAttack(match, opponentId, tw.attackerSlot, tw.defenderSlot)
             local atkName = tw.attackerSnap and tw.attackerSnap.name or "Striker"
             ctxText = atkName .. " blocked — offside!"
 
