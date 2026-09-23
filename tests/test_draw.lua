@@ -56,3 +56,10 @@ T.test("clipLine handles a zero-length point inside and outside the rect", funct
     T.near(x1, 50); T.near(y1, 50); T.near(x2, 50); T.near(y2, 50)
     T.eq(Draw.clipLine(200, 200, 200, 200, 0, 0, 100, 100), nil, "point outside rect")
 end)
+
+T.test("starPoints has 10 points, the first at the top tip", function()
+    local p = Draw.starPoints(50, 60, 20)
+    T.eq(#p, 20)
+    T.near(p[1], 50); T.near(p[2], 40)
+    T.near(math.sqrt((p[3] - 50) ^ 2 + (p[4] - 60) ^ 2), 9)   -- inner radius 0.45 r
+end)

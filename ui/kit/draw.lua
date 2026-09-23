@@ -344,4 +344,34 @@ function Draw.background(W, H)
     love.graphics.draw(_bgMesh)
 end
 
+-- Five-point star outline {x1,y1,...}, first point at the top tip. Pure (unit-tested).
+function Draw.starPoints(cx, cy, r)
+    local p = {}
+    for i = 0, 9 do
+        local a = -math.pi / 2 + i * math.pi / 5
+        local rad = (i % 2 == 0) and r or r * 0.45
+        p[#p + 1] = cx + math.cos(a) * rad
+        p[#p + 1] = cy + math.sin(a) * rad
+    end
+    return p
+end
+
+-- Star is concave: fill it as a fan of triangles around its centre.
+local function fillStar(cx, cy, r)
+    local p = Draw.starPoints(cx, cy, r)
+    for i = 1, #p, 2 do
+        local nx = i + 2
+        if nx > #p then nx = 1 end
+        love.graphics.polygon("fill", cx, cy, p[i], p[i + 1], p[nx], p[nx + 1])
+    end
+end
+
+-- Star with white outline + ink drop shadow (midfield crown, summons bonus).
+function Draw.star(cx, cy, r, color, alphaMul)
+    local sh = math.max(1, math.floor(r * 0.15))
+    Draw.setColor(Theme.ink, alphaMul);   fillStar(cx, cy + sh, r + 2)
+    Draw.setColor(Theme.white, alphaMul); fillStar(cx, cy, r + 2)
+    Draw.setColor(color or Theme.highlight.selected, alphaMul); fillStar(cx, cy, r)
+end
+
 return Draw
