@@ -198,10 +198,8 @@ function State.checkHalfEnd(matchState)
     if o.lp <= 0 then return "player", "lp" end
     if matchState.half == "extra" then
         if matchState.extraTurnsLeft <= 0 then
-            -- Extra Time: whoever dealt more total LP damage wins
-            if p.totalDamageDealt > o.totalDamageDealt then return "player", "time"
-            elseif o.totalDamageDealt > p.totalDamageDealt then return "opponent", "time"
-            else return "player", "time" end  -- tiebreak: player wins
+            -- Extra Time LP → Extra Time damage → the player who went second
+            return State.decideOnTime(matchState), "time"
         end
         return nil
     end
