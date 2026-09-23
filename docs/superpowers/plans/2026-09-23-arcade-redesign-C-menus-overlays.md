@@ -3534,4 +3534,1052 @@ Expected: no `luac` output; `134 passed, 0 failed`; `cover_panel`, `cover_slide`
 - `cover_slide.png`: a white panel partly below the bottom edge (sliding up), with the pitch fully visible above it and lightly dimmed.
 - `cover_panel.png`:
   - A white panel at y 548–788 (×2 = 1096–1576), x 160–1120.
-  - A yellow "CO
+  - A yellow "COVER?" ribbon straddles the panel top.
+  - On the left is the red "Speed Demon" card (hand size), with an ink triangle arrow pointing right.
+  - "INCOMING ATTACK" heading, the line "Speed Demon (ATK 2200) is attacking your empty DEFENDER slot." and the grey note.
+  - One small "Box-to-Box" midfielder card with a green COVER button under it. The button is lifted, because the mouse hovers it.
+  - A white LET THROUGH button on the right.
+  - On the pitch, your MID slot pulses with a yellow glow and ring, and the opponent striker in STR 1 pulses red.
+- `trapwin_slide.png`: the panel is sliding in with a purple ribbon.
+- `trapwin_panel.png`:
+  - A purple ribbon "TRAP WINDOW · STRIKER ATTACKS" and "The Poacher" on the left.
+  - "YOUR TRAPS ARE READY", then "The Poacher (ATK 2000) vs The Rock (DEF 2100)." and the note "Activate a trap, or pass.".
+  - Two face-up trap cards (Offside, Manager's Challenge), each with a green ACTIVATE button. The first button is hovered.
+  - A white PASS button.
+  - Both of your trap slots by your goal pulse purple.
+- `summon_*.png`: during the AI turn, any cover prompt was answered by `advance()` (no panel stuck in `summon_myturn`).
+
+- [ ] **Step 11: Commit**
+
+```bash
+git add ui/overlay/promptpanel.lua ui/overlay/prompts.lua scenes/match.lua tools/snapshot/scenarios.lua tests/test_promptpanel.lua
+git commit -m "Restyle cover prompt and trap window as a sliding bottom panel"
+```
+
+---
+
+### Task 12: Scout reveal
+
+**Files:**
+- Create: `ui/overlay/reveal.lua`
+- Modify: `scenes/match.lua`, `tools/snapshot/scenarios.lua`
+- Test: `tests/test_reveal.lua`
+
+- [ ] **Step 1: Write the failing test `tests/test_reveal.lua`**
+
+```lua
+local T      = require("tests.t")
+local Reveal = require("ui.overlay.reveal")
+
+T.test("scout card starts face-down, turns edge-on, lands face-up", function()
+    local p = Reveal.pose(0, 3.5)
+    T.ok(not p.faceUp); T.near(p.flipX, 1)
+    p = Reveal.pose(Reveal.FLIP_DUR / 2, 3.2); T.near(p.flipX, 0, 1e-9)
+    p = Reveal.pose(Reveal.FLIP_DUR, 3.0); T.ok(p.faceUp); T.near(p.flipX, 1); T.near(p.scale, 1)
+end)
+
+T.test("scout card shrinks away during the last OUT_DUR seconds", function()
+    local p = Reveal.pose(2.0, 1.0); T.near(p.scale, 1); T.near(p.alpha, 1)
+    p = Reveal.pose(3.35, Reveal.OUT_DUR / 2); T.near(p.scale, 0.5); T.near(p.alpha, 0.5)
+    p = Reveal.pose(3.5, 0); T.near(p.scale, 0); T.near(p.alpha, 0)
+end)
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `lua tests/run.lua`
+Expected: `FAIL  tests/test_reveal.lua (load error)`; then `134 passed, 1 failed`.
+
+- [ ] **Step 3: Create `ui/overlay/reveal.lua`**
+
+```lua
+-- Scout Report reveal: the card flips up at zoom size under a SCOUTED ribbon and shrinks
+-- away as the timer runs out. Reveal.pose is pure (unit-tested); draw uses LÖVE.
+-- Input is unchanged: a click dismisses (scenes/match.lua).
+local Theme = require("ui.theme")
+local Draw  = require("ui.kit.draw")
+local Card  = require("ui.card")
+local C     = require("ui.overlay.combatfx")   -- progress / backout
+
+local Reveal = {}
+Reveal.FLIP_DUR = 0.45
+Reveal.OUT_DUR  = 0.30
+
+local W, H   = 1280, 800
+local CW, CH = 200, 274
+local CX, CY = 640, 390
+
+-- elapsed: seconds since shown; remaining: seconds left on the timer.
+function Reveal.pose(elapsed, remaining)
+    local f   = C.progress(elapsed, 0, Reveal.FLIP_DUR)
+    local out = 1 - C.progress(remaining, 0, Reveal.OUT_DUR)
+    return {
+        flipX  = math.abs(math.cos(f * math.pi)),
+        faceUp = f >= 0.5,
+        scale  = (0.8 + 0.2 * f) * (1 - out),
+        alpha  = 1 - out,
+        ribbon = C.backout(C.progress(elapsed, 0.3, 0.25)) * (1 - out),
+        hint   = C.progress(elapsed, 0.6, 0.25) * (1 - out),
+    }
+end
+
+function Reveal.draw(pitched, elapsed, remaining)
+    local p = Reveal.pose(elapsed, remaining)
+    love.graphics.setColor(Theme.ink[1], Theme.ink[2], Theme.ink[3], 0.72 * p.alpha)
+    love.graphics.rectangle("fill", 0, 0, W, H)
+
+    local def = pitched and pitched.definition
+    if def then
+        love.graphics.push()
+        love.graphics.translate(CX, CY)
+        love.graphics.scale(p.scale * p.flipX, p.scale)
+        if p.faceUp then
+            Card.drawFace(def, -CW / 2, -CH / 2, CW, CH, {})
+        else
+            Card.drawBack(-CW / 2, -CH / 2, CW, CH, { label = "DEF" })
+        end
+        love.graphics.pop()
+    else
+        Draw.text("NO CARD IN THAT SLOT", 0, CY - 20, W, "center", {
+            size = 32, color = Theme.white, shadowY = 3, alpha = p.alpha,
+        })
+    end
+
+    if p.ribbon > 0 then
+        local ry = CY - CH / 2 - 84
+        love.graphics.push()
+        love.graphics.translate(CX, ry + 30)
+        love.graphics.scale(p.ribbon, p.ribbon)
+        love.graphics.translate(-CX, -(ry + 30))
+        Draw.ribbon(CX, ry, 340, 60, "SCOUTED", {
+            fill = Theme.outcome.blue, textColor = Theme.white, size = 38, textShadow = true,
+        })
+        love.graphics.pop()
+    end
+    if p.hint > 0 then Draw.hintPill(CX, CY + CH / 2 + 48, "CLICK TO DISMISS", p.hint) end
+end
+
+return Reveal
+```
+
+- [ ] **Step 4: Wire it into `scenes/match.lua`.**
+  - Add after `local PromptPanel        = require("ui.overlay.promptpanel")`:
+
+```lua
+local Reveal             = require("ui.overlay.reveal")
+```
+
+  - In `Match.update`, replace:
+
+```lua
+    if scoutReveal then
+        scoutReveal.timer = scoutReveal.timer - dt
+        if scoutReveal.timer <= 0 then scoutReveal = nil end
+    end
+```
+
+with:
+
+```lua
+    if scoutReveal then
+        scoutReveal.t     = (scoutReveal.t or 0) + dt
+        scoutReveal.timer = scoutReveal.timer - dt
+        if scoutReveal.timer <= 0 then scoutReveal = nil end
+    end
+```
+
+  - In `Match.mousepressed`, replace `                        scoutReveal = { card = result.revealedCard, timer = 3.5 }` with:
+
+```lua
+                        scoutReveal = { card = result.revealedCard, timer = 3.5, t = 0 }
+```
+
+  - In `Match.draw`, replace `        Match.drawScoutReveal(scoutReveal.card)` with:
+
+```lua
+        Reveal.draw(scoutReveal.card, scoutReveal.t or 0, scoutReveal.timer)
+```
+
+  - Delete the whole `function Match.drawScoutReveal(pitchedCard)` through its closing `end`, which is directly above `function Match.getCardInSlot(pitch, slot)`.
+
+Run: `grep -n 'drawScoutReveal\|Theme.atkColor\|Theme.defColor' scenes/match.lua`
+Expected: no output.
+
+- [ ] **Step 5: Add the `scout` scenario.** In `tools/snapshot/scenarios.lua`, insert directly above `return S`:
+
+```lua
+-- Scout reveal (synthetic, harness-only): flip, shown, shrinking, gone.
+S.scout = {
+    { 0.3,  function() math.randomseed(7) end },
+    { 0.5,  kickOff },
+    { 1.5,  function()
+        require("scenes.match").debugOverlay("scout", pitched("keeper-iron-fists", "keeper", "defense"))
+    end },
+    { 1.75, function(c) c.snap("flip") end },
+    { 2.4,  function(c) c.snap("shown") end },
+    { 4.85, function(c) c.snap("shrink") end },
+    { 5.2,  function(c) c.snap("gone") end },
+    { 5.5,  function(c) c.quit() end },
+}
+```
+
+- [ ] **Step 6: Syntax check, tests, snapshots**
+
+Run: `luac -p ui/overlay/reveal.lua scenes/match.lua tools/snapshot/scenarios.lua && lua tests/run.lua && tools/snapshot/snap.sh scout`
+Expected: no `luac` output; `136 passed, 0 failed`; `scout_flip`, `scout_gone`, `scout_shown`, `scout_shrink` listed; no Lua error.
+
+- [ ] **Step 7: Review with the Read tool:**
+
+- `scout_flip.png`: a navy dim, and a very narrow card at centre (640, 390 → ×2 = 1280, 780), mid-flip.
+- `scout_shown.png`:
+  - A full-size "Iron Fists" keeper card face-up, with its rare gold glow.
+  - A blue "SCOUTED" ribbon above it.
+  - A white "CLICK TO DISMISS" pill with a triangle below it.
+- `scout_shrink.png`: the card, ribbon and pill are clearly smaller (about half size), and the dim is lighter.
+- `scout_gone.png`: the plain match.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add ui/overlay/reveal.lua scenes/match.lua tools/snapshot/scenarios.lua tests/test_reveal.lua
+git commit -m "Restyle scout reveal: flip-up zoom card with SCOUTED ribbon"
+```
+
+---
+
+### Task 13: Half-time ribbon and match-end screen
+
+**Files:**
+- Create: `ui/overlay/matchend.lua`
+- Modify: `ui/match/banner.lua`, `ui/character.lua`, `scenes/match.lua`, `tools/snapshot/scenarios.lua`
+- Test: `tests/test_banner.lua`, `tests/test_matchend.lua`
+
+- [ ] **Step 1: Write the failing tests.** Append to `tests/test_banner.lua`:
+
+```lua
+T.test("wide banners carry their own size and hold time", function()
+    local b = Banner.new({ w = 1400, h = 84, y = 330, size = 46, hold = 2.4, slide = 1500 })
+    T.eq(b.w, 1400); T.eq(b.y, 330); T.eq(b.size, 46)
+    b:show("HALF TIME", "half")
+    b:update(2.5); T.eq(b.text, "HALF TIME")
+    b:update(0.6); T.eq(b.text, nil)
+    local d = Banner.new(); T.eq(d.w, Banner.W); T.eq(d.hold, Banner.HOLD)
+end)
+
+T.test("pose honours a custom hold and slide", function()
+    local dx = Banner.pose(Banner.IN + 2.3, 2.4, 1500); T.near(dx, 0)
+    dx = Banner.pose(0, 2.4, 1500); T.near(dx, -1500)
+    local _, a = Banner.pose(Banner.total(2.4), 2.4, 1500); T.near(a, 0, 1e-6)
+end)
+```
+
+Create `tests/test_matchend.lua`:
+
+```lua
+local T        = require("tests.t")
+local MatchEnd = require("ui.overlay.matchend")
+
+T.test("half-time ribbon text", function()
+    T.eq(MatchEnd.halfText(1, 1, 0), "HALF TIME · YOU 1 – 0 OPP")
+    T.eq(MatchEnd.halfText(2, 1, 1), "FULL TIME · YOU 1 – 1 OPP · EXTRA TIME")
+    T.eq(MatchEnd.halfText("extra", 2, 1), "EXTRA TIME OVER · YOU 2 – 1 OPP")
+end)
+
+T.test("match-end buttons and keys", function()
+    local a, b = MatchEnd.PLAY_AGAIN, MatchEnd.MAIN_MENU
+    T.eq(MatchEnd.actionAt(a.x + a.w / 2, a.y + a.h / 2), "restart")
+    T.eq(MatchEnd.actionAt(b.x + b.w / 2, b.y + b.h / 2), "home")
+    T.eq(MatchEnd.actionAt(640, 100), nil)
+    T.ok(a.x + a.w < b.x); T.near((a.x + b.x + b.w) / 2, 640)
+    T.eq(MatchEnd.keyAction("r"), "restart"); T.eq(MatchEnd.keyAction("escape"), "home")
+    T.eq(MatchEnd.keyAction("space"), nil)
+end)
+
+T.test("title and summary rows", function()
+    T.eq((MatchEnd.title("player")), "VICTORY!"); T.eq((MatchEnd.title("opponent")), "DEFEAT")
+    local m = { players = { player   = { lp = 1200, halvesWon = 2, totalDamageDealt = 5400 },
+                            opponent = { lp = -300, halvesWon = 1, totalDamageDealt = 3100 } } }
+    local rows = MatchEnd.rows(m)
+    T.eq(#rows, 3)
+    T.eq(rows[1].label, "FINAL LP"); T.eq(rows[1].you, 1200); T.eq(rows[1].opp, 0)
+    T.eq(rows[2].you, 2); T.eq(rows[2].opp, 1)
+    T.eq(rows[3].you, 5400); T.eq(rows[3].opp, 3100)
+end)
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `lua tests/run.lua`
+Expected: `FAIL` for both new banner tests and `FAIL  tests/test_matchend.lua (load error)`; then `136 passed, 3 failed`.
+
+- [ ] **Step 3: Extend `ui/match/banner.lua`.**
+  - In the `STYLES` table, add a line after the `error = …` line:
+
+```lua
+    half  = { fill = Theme.outcome.blue,        text = Theme.white,               shadow = true },
+```
+
+  - Replace everything from `function Banner.new()` down to the end of `function Banner:draw() … end` with:
+
+```lua
+-- opts (all optional): y, w, h, size, hold, slide. Defaults are the flash banner.
+function Banner.new(opts)
+    opts = opts or {}
+    return setmetatable({
+        text = nil, kind = "info", t = 0,
+        y = opts.y or Banner.Y, w = opts.w or Banner.W, h = opts.h or Banner.H,
+        size = opts.size or 32, hold = opts.hold or Banner.HOLD, slide = opts.slide or Banner.SLIDE,
+    }, Banner)
+end
+
+function Banner.total(hold) return Banner.IN + (hold or Banner.HOLD) + Banner.OUT end
+
+function Banner:show(text, kind)
+    self.text, self.kind, self.t = text, kind or "info", 0
+end
+
+function Banner:update(dt)
+    if not self.text then return end
+    self.t = self.t + dt
+    if self.t >= Banner.total(self.hold) then self.text = nil end
+end
+
+-- x offset and alpha at time t (hold/slide default to the flash banner's).
+function Banner.pose(t, hold, slide)
+    hold, slide = hold or Banner.HOLD, slide or Banner.SLIDE
+    if t < Banner.IN then
+        local k = 1 - t / Banner.IN
+        return -slide * k * k * k, 1
+    elseif t < Banner.IN + hold then
+        return 0, 1
+    end
+    local k = math.min(1, (t - Banner.IN - hold) / Banner.OUT)
+    return slide * k * k, 1 - k
+end
+
+function Banner:draw()
+    if not self.text then return end
+    local dx, a = Banner.pose(self.t, self.hold, self.slide)
+    local st = STYLES[self.kind] or STYLES.info
+    Draw.ribbon(Layout.midX + dx, self.y, self.w, self.h, self.text, {
+        fill = st.fill, textColor = st.text, size = self.size, alpha = a, textShadow = st.shadow,
+    })
+end
+```
+
+- [ ] **Step 4: Let `Character.drawPortrait` take a state override.** In `ui/character.lua`, replace:
+
+```lua
+function Character.drawPortrait(x, y, w, h)
+    if not loaded then return end
+    local img = imgs[state] or imgs.thinking
+```
+
+with:
+
+```lua
+-- stateOverride forces an expression for this draw only (match-end screen).
+function Character.drawPortrait(x, y, w, h, stateOverride)
+    if not loaded then return end
+    local img = imgs[stateOverride or state] or imgs.thinking
+```
+
+- [ ] **Step 5: Create `ui/overlay/matchend.lua`**
+
+```lua
+-- Half-time ribbon text and the match-end screen. Win: gold VICTORY! with the happy
+-- (attacking) pose and confetti (scenes/match.lua bursts it). Loss: grey-blue DEFEAT with
+-- the worried pose. Final LP, halves and LP damage; PLAY AGAIN / MAIN MENU.
+-- Text, layout and input mapping are pure (unit-tested); draw uses LÖVE.
+-- Actions: "restart" (same deck) | "home".
+local Theme     = require("ui.theme")
+local Draw      = require("ui.kit.draw")
+local Button    = require("ui.kit.button")
+local Character = require("ui.character")
+local C         = require("ui.overlay.combatfx")   -- progress / backout
+
+local MatchEnd = {}
+
+MatchEnd.PLAY_AGAIN = { x = 395, y = 628, w = 230, h = 68 }
+MatchEnd.MAIN_MENU  = { x = 655, y = 628, w = 230, h = 68 }
+MatchEnd.PORTRAIT   = { x = 250, y = 240, w = 280, h = 340 }
+MatchEnd.STATS      = { x = 570, y = 260, w = 460, h = 300 }
+
+-- Ribbon text when a half ends without a winner. you/opp = halves won so far.
+function MatchEnd.halfText(half, you, opp)
+    local score = "YOU " .. you .. " – " .. opp .. " OPP"
+    if half == 1 then return "HALF TIME · " .. score end
+    if half == 2 then return "FULL TIME · " .. score .. " · EXTRA TIME" end
+    return "EXTRA TIME OVER · " .. score
+end
+
+function MatchEnd.title(winner)
+    if winner == "player" then return "VICTORY!", "win" end
+    return "DEFEAT", "loss"
+end
+
+function MatchEnd.rows(match)
+    local p, o = match.players.player, match.players.opponent
+    return {
+        { label = "FINAL LP",  you = math.max(0, p.lp),        opp = math.max(0, o.lp) },
+        { label = "HALVES",    you = p.halvesWon or 0,         opp = o.halvesWon or 0 },
+        { label = "LP DAMAGE", you = p.totalDamageDealt or 0,  opp = o.totalDamageDealt or 0 },
+    }
+end
+
+local function inRect(x, y, r) return x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h end
+
+function MatchEnd.actionAt(x, y)
+    if inRect(x, y, MatchEnd.PLAY_AGAIN) then return "restart" end
+    if inRect(x, y, MatchEnd.MAIN_MENU) then return "home" end
+    return nil
+end
+
+function MatchEnd.keyAction(key)
+    if key == "r" then return "restart" end
+    if key == "escape" then return "home" end
+    return nil
+end
+
+-- ── LÖVE ──────────────────────────────────────────────────────────────────────
+
+local WIN_FILL  = { Theme.hex("ffe08a"), Theme.hex("ffb43a") }
+local LOSS_FILL = { Theme.hex("aab4cf"), Theme.hex("6b7896") }
+local buttons = nil
+
+-- t: seconds since the screen appeared; mx, my: match mouse.
+function MatchEnd.draw(match, t, mx, my)
+    if not buttons then
+        local A, M = MatchEnd.PLAY_AGAIN, MatchEnd.MAIN_MENU
+        buttons = {
+            Button.new({ id = "restart", label = "PLAY AGAIN", variant = "go", fontSize = 28,
+                         x = A.x, y = A.y, w = A.w, h = A.h }),
+            Button.new({ id = "home", label = "MAIN MENU", variant = "neutral", fontSize = 28,
+                         x = M.x, y = M.y, w = M.w, h = M.h }),
+        }
+    end
+    local won = match.winner == "player"
+    love.graphics.setColor(Theme.ink[1], Theme.ink[2], Theme.ink[3], 0.78 * C.progress(t, 0, 0.3))
+    love.graphics.rectangle("fill", 0, 0, 1280, 800)
+
+    local pop = C.backout(C.progress(t, 0.05, 0.4))
+    love.graphics.push()
+    love.graphics.translate(640, 152)
+    love.graphics.scale(pop, pop)
+    love.graphics.translate(-640, -152)
+    Draw.ribbon(640, 104, 560, 96, (MatchEnd.title(match.winner)), {
+        fill = won and Theme.outcome.yellow or Theme.outcome.grey,
+        textColor = won and Theme.button.primary.text or Theme.white, size = 72, textShadow = not won,
+    })
+    love.graphics.pop()
+
+    local P = MatchEnd.PORTRAIT
+    Draw.sticker(P.x, P.y, P.w, P.h, { r = 24, fill = won and WIN_FILL or LOSS_FILL, border = 5, shadow = 7 })
+    Character.drawPortrait(P.x + 5, P.y + 5, P.w - 10, P.h - 10, won and "attacking" or "worried")
+
+    local S = MatchEnd.STATS
+    Draw.sticker(S.x, S.y, S.w, S.h, { r = 24, fill = Theme.white, border = 0, shadow = 7 })
+    Draw.text("YOU", S.x + 200, S.y + 22, 110, "center", { size = 22, color = Theme.grad.lpYou[2] })
+    Draw.text("OPP", S.x + 320, S.y + 22, 110, "center", { size = 22, color = Theme.grad.lpOpp[2] })
+    for i, row in ipairs(MatchEnd.rows(match)) do
+        local y = S.y + 64 + (i - 1) * 72
+        Draw.text(row.label, S.x + 24, y + 12, 170, "left", { size = 22, color = Theme.inkText, fit = true })
+        Draw.pill(S.x + 200, y, 110, 48, tostring(row.you), { fill = Theme.grad.lpYou, textColor = Theme.white, size = 26 })
+        Draw.pill(S.x + 320, y, 110, 48, tostring(row.opp), { fill = Theme.grad.lpOpp, textColor = Theme.white, size = 26 })
+    end
+
+    local dt, down = love.timer.getDelta(), love.mouse.isDown(1)
+    for _, b in ipairs(buttons) do
+        b:update(dt, mx or -1, my or -1, down)
+        b:draw()
+    end
+    Draw.text("R  PLAY AGAIN   ·   ESC  MAIN MENU", 0, 716, 1280, "center", {
+        size = 14, body = true, color = Theme.white, shadowY = 1,
+    })
+end
+
+return MatchEnd
+```
+
+- [ ] **Step 6: Wire it into `scenes/match.lua`.**
+  - Add after `local Reveal             = require("ui.overlay.reveal")`:
+
+```lua
+local MatchEnd           = require("ui.overlay.matchend")
+```
+
+  - Replace:
+
+```lua
+local toasts = Toasts.new()
+local banner = Banner.new()
+```
+
+with:
+
+```lua
+local toasts = Toasts.new()
+local banner = Banner.new()
+
+-- Half-time ribbon (full width) and the match-end screen
+local HALF_BANNER = { y = 318, w = 1400, h = 84, size = 46, hold = 2.4, slide = 1500 }
+local halfBanner  = Banner.new(HALF_BANNER)
+local pendingHalf = nil   -- half-time text waiting for the overlays to clear
+local winT        = nil   -- seconds since the match-end screen appeared
+```
+
+  - In `Match.enter`, directly after `    banner              = Banner.new()`, add:
+
+```lua
+    halfBanner          = Banner.new(HALF_BANNER)
+    pendingHalf         = nil
+    winT                = nil
+```
+
+  - In `Match.update`, replace `    banner:update(dt)` with:
+
+```lua
+    banner:update(dt)
+    halfBanner:update(dt)
+```
+
+  - In the log scan in `Match.update`, replace:
+
+```lua
+        elseif evt.type == "card_drawn" then
+            Match.spawnDrawAnim(p.player == "player")
+        end
+```
+
+with:
+
+```lua
+        elseif evt.type == "card_drawn" then
+            Match.spawnDrawAnim(p.player == "player")
+        elseif evt.type == "half_end" and not match.winner then
+            pendingHalf = MatchEnd.halfText(p.half, match.players.player.halvesWon or 0,
+                match.players.opponent.halvesWon or 0)
+        end
+```
+
+  - In `Match.update`, insert directly above the line `    if activeCombat then return end` (the one followed by `    if activeTrapActiv then return end`):
+
+```lua
+    -- Half-time ribbon and match-end screen wait until the overlays are dismissed
+    local overlaysClear = not activeCombat and not activeTrapActiv and #combatQueue == 0 and #trapActivQueue == 0
+    if pendingHalf and overlaysClear then
+        halfBanner:show(pendingHalf, "half")
+        pendingHalf = nil
+    end
+    if match.winner and overlaysClear then
+        local prevWin = winT
+        winT = (winT or 0) + dt
+        if match.winner == "player" and (not prevWin or math.floor(prevWin / 1.4) ~= math.floor(winT / 1.4)) then
+            Confetti.burst(math.random(260, 1020), 180, 90)
+        end
+    end
+
+```
+
+  - In `Match.draw`, replace:
+
+```lua
+    -- Confetti
+    Confetti.draw()
+```
+
+with:
+
+```lua
+    -- Confetti (drawn above the match-end screen instead, once it is up)
+    if not winT then Confetti.draw() end
+```
+
+  - In `Match.draw`, replace `    banner:draw()` with:
+
+```lua
+    banner:draw()
+    halfBanner:draw()
+```
+
+  - In `Match.draw`, replace `    if match.winner then Match.drawWinScreen(match) end` with:
+
+```lua
+    if winT then
+        MatchEnd.draw(match, winT, mouseX, mouseY)
+        Confetti.draw()
+    end
+```
+
+  - Delete the whole `function Match.drawWinScreen(match)` through its closing `end`.
+  - In `Match.mousepressed`, replace:
+
+```lua
+    if button ~= 1 then return end
+
+    -- Dismiss scout reveal overlay
+```
+
+with:
+
+```lua
+    if button ~= 1 then return end
+
+    -- Match-end screen: PLAY AGAIN / MAIN MENU
+    if winT then return MatchEnd.actionAt(x, y) end
+
+    -- Dismiss scout reveal overlay
+```
+
+  - In `Match.keypressed`, insert directly above `    if activeTrapActiv then`:
+
+```lua
+    if winT then return MatchEnd.keyAction(key) end
+
+```
+
+  - In `Match.keypressed`, delete these two lines:
+
+```lua
+    elseif key == "r" and store.match and store.match.winner then
+        return "restart"
+```
+
+Run: `grep -n 'drawWinScreen\|key == "r"' scenes/match.lua`
+Expected: no output.
+
+- [ ] **Step 7: Add the `halftime`, `victory` and `defeat` scenarios.** In `tools/snapshot/scenarios.lua`, insert directly above `return S`:
+
+```lua
+-- Half time (harness-only: zero the opponent's LP and let the store end the half).
+S.halftime = {
+    { 0.3,  function() math.randomseed(7) end },
+    { 0.5,  kickOff },
+    { 1.5,  function()
+        local st = store()
+        st.match.players.opponent.lp = 0
+        st:_checkHalf()
+    end },
+    { 1.72, function(c) c.snap("slide") end },
+    { 2.4,  function(c) c.snap("ribbon") end },
+    { 4.9,  function(c) c.snap("after") end },
+    { 5.2,  function(c) c.quit() end },
+}
+
+-- Victory (harness-only: you already won a half; win the second), then R to play again.
+S.victory = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, kickOff },
+    { 1.5, function()
+        local st = store()
+        st.match.players.player.halvesWon = 1
+        st.match.players.player.totalDamageDealt = 4000
+        st.match.players.opponent.lp = 0
+        st:_checkHalf()
+    end },
+    { 1.62, function(c) c.snap("pop") end },
+    { 2.6,  function(c) c.snap("win") end },
+    { 2.7,  function() move(center(require("ui.overlay.matchend").PLAY_AGAIN)) end },
+    { 3.0,  function(c) c.snap("hover") end },
+    { 3.1,  function() love.keypressed("r") end },
+    { 3.6,  function(c) c.snap("again") end },
+    { 3.8,  function(c) c.quit() end },
+}
+
+-- Defeat (harness-only), then ESC to the main menu.
+S.defeat = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, kickOff },
+    { 1.5, function()
+        local st = store()
+        st.match.players.opponent.halvesWon = 1
+        st.match.players.player.lp = 0
+        st:_checkHalf()
+    end },
+    { 2.6, function(c) c.snap("loss") end },
+    { 2.7, function() love.keypressed("escape") end },
+    { 3.1, function(c) c.snap("home") end },
+    { 3.3, function(c) c.quit() end },
+}
+```
+
+- [ ] **Step 8: Syntax check, tests, snapshots**
+
+Run: `luac -p ui/match/banner.lua ui/character.lua ui/overlay/matchend.lua scenes/match.lua tools/snapshot/scenarios.lua && lua tests/run.lua && for s in halftime victory defeat juice; do tools/snapshot/snap.sh $s || echo "FAILED $s"; done`
+Expected:
+- no `luac` output;
+- `141 passed, 0 failed`;
+- PNGs listed: `halftime_after`, `halftime_ribbon`, `halftime_slide`; `victory_again`, `victory_hover`, `victory_pop`, `victory_win`; `defeat_home`, `defeat_loss`; the `juice_*` PNGs;
+- no `FAILED`, no Lua error.
+
+- [ ] **Step 9: Review with the Read tool:**
+
+- `halftime_slide.png`: a blue ribbon wider than the screen, partly slid in from the left, at y≈318 (×2 = 636).
+- `halftime_ribbon.png`:
+  - The blue ribbon spans the full width, reading "HALF TIME · YOU 1 – 0 OPP". The en dash renders; there are no box glyphs.
+  - The top bar shows one filled ⚽ pip for you.
+- `halftime_after.png`:
+  - The ribbon is gone.
+  - The phase pill reads "HALF 2 · TURN 1 · …" and both LP bars are full again.
+- `victory_pop.png`: a navy dim fading in, and a gold "VICTORY!" ribbon that is small or growing, with confetti.
+- `victory_win.png`:
+  - A gold "VICTORY!" ribbon (dark-brown text) at the top.
+  - A gold portrait sticker with the attacking character art on the left.
+  - A white stats panel with YOU (green) / OPP (red) columns: FINAL LP 4000 / 0, HALVES 2 / 0, LP DAMAGE 4000 / 0.
+  - A green PLAY AGAIN button and a white MAIN MENU button, and a key hint line.
+  - Confetti above the dim.
+- `victory_hover.png`: the PLAY AGAIN button is lifted (hover).
+- `victory_again.png`:
+  - A fresh match: turn 1, full LP bars, no pips, no match-end screen.
+  - The same deck (The Beautiful Game): the hand renders as in `match_start`.
+- `defeat_loss.png`:
+  - A grey-blue "DEFEAT" ribbon with white text.
+  - A grey-blue portrait sticker with the worried art.
+  - FINAL LP 0 / 4000 and HALVES 0 / 2.
+  - No confetti.
+- `defeat_home.png`: the arcade home menu.
+- `juice_*.png`: unchanged from Plan B (the flash banner still works with the new `Banner.new`).
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add ui/match/banner.lua ui/character.lua ui/overlay/matchend.lua scenes/match.lua tools/snapshot/scenarios.lua tests/test_banner.lua tests/test_matchend.lua
+git commit -m "Add half-time ribbon and arcade victory/defeat screen"
+```
+
+---
+
+### Task 14: Remove legacy tokens and dead code
+
+**Files:**
+- Modify: `ui/theme.lua`, `ui/card.lua`, `ui/character.lua`, `scenes/match.lua`, `tools/snapshot/card_gallery.lua`, `tests/test_theme.lua`
+- Delete: `lib/moonshine/`
+
+- [ ] **Step 1: Write the failing test.** Append to `tests/test_theme.lua`:
+
+```lua
+T.test("legacy tokens are gone", function()
+    for _, k in ipairs({ "cardColors", "cardArt", "cardAccents", "cardColorsDim", "cardHeaders", "atkColor",
+        "defColor", "pitch", "hud", "logColors", "phases", "card", "pitchCard", "slot", "layout", "font",
+        "exhaustOverlay", "settlingOverlay" }) do
+        T.eq(Theme[k], nil, "Theme." .. k .. " still exists")
+    end
+end)
+```
+
+Run: `lua tests/run.lua`
+Expected: `FAIL  legacy tokens are gone`; then `141 passed, 1 failed`.
+
+- [ ] **Step 2: Prove nothing reads the legacy tokens**
+
+Run: `grep -rnE 'Theme\.(cardColors|cardArt|cardAccents|cardColorsDim|cardHeaders|atkColor|defColor|pitch|hud|logColors|phases|card|pitchCard|slot|layout|font|exhaustOverlay|settlingOverlay)([^A-Za-z]|$)' --include='*.lua' . | grep -v '^./ui/theme.lua'`
+Expected: no output. If anything prints, migrate that caller to arcade tokens before continuing.
+
+- [ ] **Step 3: Replace `ui/theme.lua` entirely**
+
+```lua
+-- All colors and visual constants (arcade style).
+local Theme = {}
+
+local function hex(s, a)
+    s = s:gsub("#", "")
+    return {
+        tonumber(s:sub(1, 2), 16) / 255,
+        tonumber(s:sub(3, 4), 16) / 255,
+        tonumber(s:sub(5, 6), 16) / 255,
+        a or 1,
+    }
+end
+Theme.hex = hex
+
+Theme.ink     = hex("1d1d59")   -- outlines, hard drop shadows
+Theme.inkText = hex("2b2b6b")   -- dark text on white
+Theme.white   = { 1, 1, 1, 1 }
+
+Theme.bg = { top = hex("3d7cff"), bottom = hex("6b4dff") }
+
+Theme.grad = {
+    atk   = { hex("ff6a6a"), hex("e0243a") },
+    def   = { hex("6ac8ff"), hex("1f78e0") },
+    lpYou = { hex("7dff8a"), hex("2ec44a") },
+    lpOpp = { hex("ff8a8a"), hex("e0243a") },
+    bonus = { hex("7dff8a"), hex("22b347") },
+}
+
+Theme.highlight = {
+    selected = hex("ffe14a"),
+    target   = hex("ff4a4a"),
+    valid    = { 1, 1, 1, 1 },
+}
+
+Theme.button = {
+    primary = { fill = { hex("ffd23a"), hex("ff9a1a") }, text = hex("5a2a00"), shadow = hex("a14e00") },
+    go      = { fill = { hex("7dff8a"), hex("22b347") }, text = { 1, 1, 1, 1 }, shadow = hex("137a2e") },
+    danger  = { fill = { hex("ff8a8a"), hex("e0243a") }, text = { 1, 1, 1, 1 }, shadow = hex("8f1026") },
+    neutral = { fill = { hex("ffffff"), hex("dfe3f0") }, text = hex("2b2b6b"), shadow = hex("1d1d59") },
+    blue    = { fill = { hex("6ac8ff"), hex("1f78e0") }, text = { 1, 1, 1, 1 }, shadow = hex("0f4a9a") },
+    icon    = { fill = { { 1, 1, 1, 0.18 }, { 1, 1, 1, 0.10 } }, text = { 1, 1, 1, 1 }, shadow = { 0.114, 0.114, 0.349, 0.6 } },
+}
+
+Theme.typeGrad = {
+    striker    = { hex("ff7a59"), hex("e8344a") },
+    defender   = { hex("4fb8ff"), hex("2563eb") },
+    midfielder = { hex("6ee7a0"), hex("16a34a") },
+    keeper     = { hex("ffc15a"), hex("ea7a0c") },
+    trap       = { hex("c77dff"), hex("7b2cbf") },
+    strategy   = { hex("5eead4"), hex("0f9488") },
+    formation  = { hex("ffe08a"), hex("d4a017") },
+}
+
+Theme.typeLabel = {
+    striker = "STRIKER", defender = "DEFENDER", midfielder = "MIDFIELD", keeper = "KEEPER",
+    trap = "TRAP", strategy = "STRATEGY", formation = "FORMATION",
+}
+
+Theme.rarityColors = {
+    common    = hex("cfd6e6"),
+    uncommon  = hex("5eead4"),
+    rare      = hex("ffc93a"),
+    legendary = hex("ff5ec8"),
+}
+
+Theme.cardBack = { hex("35358a"), hex("22226a") }
+
+Theme.cardSize = {
+    pitch = { w = 108, h = 148 },
+    hand  = { w = 120, h = 165 },
+    zoom  = { w = 300, h = 410 },
+}
+
+-- Result ribbons, trap purple, match-end grey (overlays).
+Theme.outcome = {
+    red    = { hex("ff8a8a"), hex("e0243a") },
+    orange = { hex("ffc15a"), hex("f07a0c") },
+    blue   = { hex("6ac8ff"), hex("1f78e0") },
+    yellow = { hex("ffd23a"), hex("ff9a1a") },
+    grey   = { hex("d7dcea"), hex("8f99b5") },
+    purple = { hex("c77dff"), hex("7b2cbf") },
+}
+
+-- Deck-select tiles (keys match data/presetDecks.lua).
+Theme.deckFill = {
+    tikitaka   = { hex("6ee7a0"), hex("16a34a") },
+    longball   = { hex("ff7a59"), hex("e0243a") },
+    catenaccio = { hex("4fb8ff"), hex("2563eb") },
+}
+
+-- Navy dim behind menus and overlays.
+Theme.dim = hex("1d1d59", 0.72)
+
+return Theme
+```
+
+- [ ] **Step 4: Remove `Card.drawTooltip`**
+
+Run: `grep -rn 'drawTooltip' --include='*.lua' .`
+Expected: only `ui/card.lua` (the header comment and the function) and `tools/snapshot/card_gallery.lua`.
+
+- In `ui/card.lua`, delete the header line `--   Card.drawTooltip(cardDef, x, y)`. Also delete the whole `function Card.drawTooltip(cardDef, x, y)` through its closing `end`, which is directly above the `-- Big card face with the info sticker …` comment.
+- In `tools/snapshot/card_gallery.lua`, replace `    Card.drawTooltip(rare, x, y)` with:
+
+```lua
+    Card.drawInfo(rare, x, y, 230)
+```
+
+Run: `grep -rn 'drawTooltip' --include='*.lua' .`
+Expected: no output.
+
+- [ ] **Step 5: Remove the dead character code**
+
+Run: `grep -rn 'Character\.drawSide\|Character\.draw(' --include='*.lua' . | grep -v '^./ui/character.lua'`
+Expected: no output.
+
+In `ui/character.lua`:
+- Delete the line `local Fonts = require("ui.fonts")`.
+- Delete the whole `local LABEL = { … }` table and the whole `local COLOR = { … }` table.
+- Delete `function Character.drawSide(side, screenW, screenH, overrideState)` and its comment block through its closing `end`.
+- Delete `function Character.draw(screenW, screenH)` through its closing `end`.
+- Add at the top of the file:
+
+```lua
+-- Player character art (assets/characters/1_*.png): expression state machine plus the
+-- bottom-left portrait and the round top-bar avatar.
+```
+
+Run: `grep -n 'Fonts\|LABEL\|COLOR\|drawSide\|setScissor' ui/character.lua`
+Expected: no output.
+
+- [ ] **Step 6: Drop unused requires in `scenes/match.lua`**
+
+Run: `grep -c 'Theme\.' scenes/match.lua; grep -c 'Fonts\.' scenes/match.lua`
+Expected: `0` and `0`. If both are 0, delete the lines `local Theme         = require("ui.theme")` and `local Fonts         = require("ui.fonts")`. If either is not 0, keep that require.
+
+- [ ] **Step 7: Delete `lib/moonshine`**
+
+Run: `grep -rn 'moonshine' --include='*.lua' . | grep -v '^./lib/moonshine/'`
+Expected: no output.
+Run: `git rm -r -q lib/moonshine`
+
+- [ ] **Step 8: Syntax check, tests, snapshots**
+
+Run: `luac -p ui/theme.lua ui/card.lua ui/character.lua scenes/match.lua tools/snapshot/card_gallery.lua && lua tests/run.lua && for s in cards match victory; do tools/snapshot/snap.sh $s || echo "FAILED $s"; done`
+Expected: no `luac` output; `142 passed, 0 failed`; `cards_gallery`, `match_start`, `match_later` and the 4 `victory_*` PNGs listed; no `FAILED`, no Lua error.
+
+- [ ] **Step 9: Review with the Read tool:**
+
+- `cards_gallery.png`: identical to Plan A, except that the row-2 tooltip slot now shows the same white info sticker drawn by `Card.drawInfo`.
+- `match_start.png` and `victory_win.png`: unchanged from Tasks 6 and 13.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add -A ui/theme.lua ui/card.lua ui/character.lua scenes/match.lua tools/snapshot/card_gallery.lua tests/test_theme.lua lib
+git commit -m "Remove legacy theme tokens, drawTooltip, old character draws and moonshine"
+```
+
+---
+
+### Task 15: Final check
+
+**Files:** none (verification only)
+
+- [ ] **Step 1: Unit tests**
+
+Run: `lua tests/run.lua`
+Expected: `142 passed, 0 failed`
+
+- [ ] **Step 2: No gameplay changes**
+
+Run: `git diff --stat 54e39e1 -- engine store ai`
+Expected: no output. (`54e39e1` is the last Plan B commit.)
+
+- [ ] **Step 3: Legacy tokens and removed modules are gone**
+
+Run: `grep -rnE 'Theme\.(cardColors|cardArt|cardAccents|cardColorsDim|cardHeaders|atkColor|defColor|pitch|hud|logColors|phases|card|pitchCard|slot|layout|font|exhaustOverlay|settlingOverlay)([^A-Za-z]|$)' --include='*.lua' .; grep -n 'Legacy' ui/theme.lua`
+Expected: no output.
+
+Run: `grep -rn 'ui\.card_library\|ui\.pause_menu\|ui\.combat_overlay\|ui\.trap_activation_overlay\|ui\.cover_prompt\|ui\.trap_prompt\|lib\.moonshine\|drawTooltip\|drawSide\|drawTrapWindow\|drawScoutReveal\|drawWinScreen\|overlayAnim\|trapActivAnim' --include='*.lua' .`
+Expected: no output.
+
+Run: `ls ui/card_library.lua ui/pause_menu.lua ui/combat_overlay.lua ui/trap_activation_overlay.lua ui/cover_prompt.lua ui/trap_prompt.lua lib/moonshine 2>&1 | grep -c 'No such file'`
+Expected: `7`
+
+- [ ] **Step 4: Every scenario runs clean**
+
+Run: `for s in home library match cards summon juice debug pause combat trap cover trapwin scout halftime victory defeat; do tools/snapshot/snap.sh $s || echo "FAILED $s"; done`
+Expected: every scenario lists its PNGs; no `FAILED` line; no Lua traceback on stderr.
+
+- [ ] **Step 5: Review every PNG with the Read tool** against the checklists in Tasks 6, 7 and 9–14, plus:
+  - `summon_*`, `juice_*` and `debug_*` still match the Plan B checklists. `debug_pause` now shows the arcade pause menu.
+  - No PNG shows a box glyph (▯) anywhere.
+  - No screen shows any of the old dark-maroon or purple panels.
+
+- [ ] **Step 6: Report to the user.**
+  - Summarize what changed.
+  - Show these screenshots: `home_menu`, `home_deck`, `library_hover`, `pause_menu`, `combat_shatter`, `combat_save`, `trap_full`, `cover_panel`, `trapwin_panel`, `scout_shown`, `halftime_ribbon`, `victory_win`, `defeat_loss`.
+  - List the intentional deviations from this plan's header.
+
+  Tell the user that an **interactive play-test is required**, because the harness cannot do it. They should play at least one full match vs. the AI to completion and check the following:
+  - **Home:**
+    - ↑/↓ moves focus (wrapping); Enter activates; mouse hover moves the focus; Esc quits the game.
+    - PLAY opens deck select. CARD LIBRARY opens the library. QUIT exits.
+  - **Deck select:**
+    - ←/→ changes the lifted tile; Enter or KICK OFF starts with that deck.
+    - Clicking a tile selects it, and clicking it again starts.
+    - BACK and Esc return home.
+    - Try all three decks.
+  - **Library (from home and from pause):**
+    - Tab clicks and ←/→; wheel and ↑/↓ scrolling stops at both ends.
+    - The hover zoom stays on screen near the right edge and the bottom rows.
+    - Esc and ✕ close it and return to the right place (home, or the pause menu).
+  - **Pause:**
+    - Opens via `ESC` and via ⏸, with the bounce.
+    - ↑/↓/Enter and clicks; RESUME; CARD LIBRARY; QUIT TO MENU.
+  - **Combat overlay:**
+    - Your attacks and AI attacks each dismiss by click, `Space` and `Enter`.
+    - A face-down defender flips at the clash; a destroyed card shatters.
+    - The GOAL / LP banner and confetti appear at the clash.
+    - The keeper Eff. DEF bonus tag is shown.
+  - **Trap activation:** trigger OFFSIDE / RED CARD / VAR from both sides and dismiss each by click or `Space`.
+  - **Cover prompt:**
+    - When the AI attacks an empty slot, the panel slides up and the pitch stays visible.
+    - COVER on each coverer (button and card) and LET THROUGH both resolve correctly.
+  - **Trap window:** ACTIVATE (button and card) and PASS, including a counter window (Manager's Challenge vs OFFSIDE).
+  - **Scout Report:** the card flips up, the reveal auto-hides after about 3.5s, and a click dismisses it early.
+  - **Half time:**
+    - The ribbon appears after the half-ending combat is dismissed, with the right score.
+    - If both of you reach 1–1, the extra-time text appears.
+  - **Match end:**
+    - VICTORY and DEFEAT screens with the right numbers.
+    - PLAY AGAIN and `R` restart with the same deck; MAIN MENU and `ESC` go home.
+
+---
+
+## Self-review: spec §3, §4 and §1 cleanup coverage
+
+| Spec item | Task |
+|---|---|
+| §3 Home: Lilita logo, white outline, navy shadow, gentle bob, football icon | 3 (`drawLogo`, `HomeMenu.bob`), 6 |
+| §3 Home: slow-scrolling soft diagonal stripes + faded card backs in the corners | 3 (`ui/menu/backdrop.lua`), 6 |
+| §3 Home: PLAY (primary) / CARD LIBRARY (neutral/blue) / QUIT (danger), ↑/↓/Enter/Esc + mouse | 1 (`button.blue`), 2 (`Flow`), 3, 6 |
+| §3 Deck select: 3 tiles green/red/blue with name, subtitle, description | 1 (`deckFill`), 4, 6 |
+| §3 Deck select: fanned stack of 3 real cards peeking over the top | 4 (`DeckSelect.showcase`, `drawFan`) |
+| §3 Deck select: selected tile lifts/scales with a yellow ring | 4 (`lifts`, `LIFT`) |
+| §3 Deck select: BACK / KICK OFF, ←/→/Enter/Esc (Esc → home) | 2, 4, 6 |
+| §3 Pause: navy dim, white panel pops in with bounce, PAUSED ribbon, 3 buttons | 7 |
+| §3 Library: pill tabs (active filled), hand-size real cards, wheel scroll | 5, 6 |
+| §3 Library: hover zoom (`ui/match/zoom`), Esc or ✕ closes | 1 (`Draw.cross`), 5, 6, 7 |
+| §4 Behaviour, data contracts and inputs unchanged | 9–12 (same records/hitbox shapes, click/Space/Enter), 15 |
+| §4 Combat: navy dim, zoom cards slide in L/R with squash-bounce | 8 (`pose`, `squash`), 9 |
+| §4 Combat: CLASH! starburst + shake | 1 (`Draw.burst`), 8 (`shake`), 9 |
+| §4 Combat: ATK/DEF badges grow and count up | 8 (`badge`, `count`, `countValue`), 9 |
+| §4 Combat: beam sprites kept, tinted | 9 (`drawBeam`) |
+| §4 Combat: result ribbon colours (red / orange / blue / yellow) | 1 (`Theme.outcome`), 8 (`Fx.result`), 9 |
+| §4 Combat: destroyed card shatters | 8 (`shatterPieces`, `piecePose`), 9 |
+| §4 Combat: Eff. DEF bonus tag | 8 (`cardView`), 9 (`drawBadges`) |
+| §4 Combat: "CLICK OR SPACE ▶" pill | 1 (`Draw.hintPill`), 9 |
+| §4 Trap activation: purple flash, flip with spin + scale | 10 |
+| §4 Trap activation: stamp slams with bounce + dust puff | 10 (`stampScale`, `dustPuffs`) |
+| §4 Trap activation: ribbon "YOU ACTIVATED A TRAP" / "OPPONENT TRAP" + context | 10 (`headline`, `effectText`) |
+| §4 Cover prompt: bottom panel slides up, pitch visible | 11 (`PromptPanel.layout`, `promptAnim`) |
+| §4 Cover prompt: attacker card left, coverers pulse on pitch + small cards | 11 (`Prompts.drawCover`) |
+| §4 Cover prompt: COVER (go) / LET THROUGH (neutral) | 11 |
+| §4 Trap window: same panel, ACTIVATE per trap, PASS | 11 (`Prompts.drawTrapWindow`, `trapHitboxes`) |
+| §4 Scout reveal: flip up at zoom size, SCOUTED ribbon, shrinks at timer end | 12 |
+| §4 Half end: full-width ribbon "HALF TIME · YOU 1 – 0 OPP" slides across | 13 (`Banner` options, `MatchEnd.halfText`) |
+| §4 Match end: gold VICTORY! + confetti + happy pose / grey-blue DEFEAT + worried pose | 13 (`MatchEnd.draw`, `drawPortrait` override) |
+| §4 Match end: final LP and halves; PLAY AGAIN / MAIN MENU | 6 (`main.lua` restart), 13 |
+| §1 Legacy tokens removed once unused | 14 |
+| Dead modules/functions: `drawTooltip`, `drawSide`/`draw`, `trap_prompt`, `moonshine` | 11, 14 |
+| §5 phases 4–5 keep the game playable after every commit | Task order 1–14 (each task wires only complete replacements) |
+| §6 Verification: harness screenshots of every screen, no engine/store/ai diff, play-test | 6, 7, 9–14, 15 |
+
+**Placeholder scan:** every code step contains complete code. There are no "TBD", "similar to" or "add appropriate …" steps. Deletions name exact first and last lines and are followed by a grep.
+
+**Name and signature consistency:**
+
+| Name | Signature | Tasks |
+|---|---|---|
+| `Match.debugOverlay` | `(kind, rec)` | defined in 9; used in 9, 10, 12 |
+| `CombatOverlay.draw` | `(rec, t)` | 9 |
+| `TrapActivOverlay.draw` | `(rec, t)` | 10 |
+| `Prompts.drawCover` / `Prompts.drawTrapWindow` | `(window, slide, mx, my)` → hitboxes | 11 |
+| `PromptPanel.coverHitboxes` / `PromptPanel.trapHitboxes` | `(window, slide)` | 11; `coverHitboxes` also used by `advance()` |
+| `Reveal.draw` | `(pitched, elapsed, remaining)` | 12 |
+| `MatchEnd.draw` | `(match, t, mx, my)` | 13 |
+| `Banner.new` | `(opts)` | 13 |
+| `Banner.pose` | `(t, hold, slide)` | 13 |
+| `Library.update` | `(dt, mx, my)` | 5; used in 6 |
+| `Pause.update` | `(dt, mx, my)` | 7 |
+| `HomeMenu.update` | `(dt, mx, my, focus)` | 3; used in 6 |
+| `DeckSelect.update` | `(dt, mx, my, selected)` | 4; used in 6 |
+| `DeckSelect.draw` | `(selected)` | 4; used in 6 |
+
+The scenario helpers `kickOff` (Task 6), `defById` and `snapFrom` (Task 9) and `pitched` (Task 11) are each defined before the first scenario that uses them.
+
+### Critical Files for Implementation
+- /Users/mac/Documents/football-tcg-lua/scenes/match.lua
+- /Users/mac/Documents/football-tcg-lua/scenes/home.lua
+- /Users/mac/Documents/football-tcg-lua/ui/overlay/combat.lua (new)
+- /Users/mac/Documents/football-tcg-lua/ui/overlay/prompts.lua (new)
+- /Users/mac/Documents/football-tcg-lua/tools/snapshot/scenarios.lua
