@@ -96,6 +96,12 @@ function Toasts.describe(entry)
         local nm = (p.trap or "trap"):gsub("^trap%-", ""):gsub("%-", " ")
         return "TRAP! " .. string.upper(nm) .. " (" .. who .. ")", "trap"
     end
+    if t == "card_tired" then
+        -- Stamina is hidden on the opponent's face-down cards: no toast for those.
+        if mine then return tostring(p.name or "Your card") .. " is TIRED (-300)", "bad" end
+        if p.hidden then return nil end
+        return "Opp's " .. tostring(p.name or "card") .. " is TIRED", "good"
+    end
     if t == "card_played" then
         if p.action == "mode_change" then
             if p.mode == "defense" then return who .. " switched a card to defense", "info" end

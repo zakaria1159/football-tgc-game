@@ -8,6 +8,7 @@ local Card   = require("ui.card")
 local Draw   = require("ui.kit.draw")
 local Layout = require("ui.match.layout")
 local Stats  = require("ui.match.stats")
+local Stamina = require("engine.stamina")
 
 local Pitch = {}
 
@@ -125,6 +126,8 @@ local function drawOccupied(pitched, r, owner, slotType, slotIndex, st, pitch, p
     local opts = {
         w = r.w, h = r.h, pitch = pitch, hideHidden = owner == "opponent",
         faceDown = (owner == "opponent") and not Card.showsFace(pitched),
+        -- Stamina pips: your cards, and the opponent's face-up cards (hidden info otherwise).
+        showStamina = slotType ~= "trap" and Stamina.visible(pitched, owner == "player"),
         -- Position-switch ribbon (Phases.canSwitch via Card.switchLabel), your cards only.
         switchLabel = owner == "player" and Card.switchLabel(pitched, slotType, {
                           isOwnTurn = st.activePlayer == "player", phase = st.phase,

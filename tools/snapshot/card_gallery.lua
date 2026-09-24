@@ -73,6 +73,11 @@ function G.drawKeywords()
     Card.drawFace(byId("mid-pressing-monster"), 440, y, 68, 80, {})
     Card.drawPitched({ definition = byId("str-target-man"), mode = "attack", slotType = "striker" },
         530, y, { switchLabel = "TO DEFENSE" })
+    local flat = { defenders = {}, strikers = {} }
+    Card.drawPitched({ definition = byId("str-poacher"), mode = "attack", slotType = "striker", stamina = 0 },
+        660, y, { pitch = flat, showStamina = true })
+    Card.drawPitched({ definition = byId("mid-box-to-box"), mode = "attack", slotType = "midfielder", stamina = 7 },
+        790, y, { pitch = flat, showStamina = true })
     -- Right of the pitch states, sized so the info sticker stays on screen.
     Card.drawLarge(byId("mid-creative-playmaker"), 1010, 305, 220)
 end

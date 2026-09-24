@@ -222,7 +222,8 @@ function Fx.cardView(snap, lookup)
     local atkBonus = snap.atkBonus or 0
     local defBonus = snap.defBonus or 0
     if snap.isKeeper and def and def.stats then
-        defBonus = math.max(0, (snap.def or 0) - (def.stats.def or 0))
+        -- Negative when a Tired non-keeper in goal drops under its base DEF.
+        defBonus = (snap.def or 0) - (def.stats.def or 0)
     end
     local cardDef = def or { name = snap.name, type = snap.type, rarity = snap.rarity or "common",
                              stats = { atk = snap.atk, def = snap.def } }

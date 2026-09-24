@@ -642,4 +642,45 @@ S.modes = {
     { 5.8, function(c) c.quit() end },
 }
 
+-- Pitched card through the real engine (full stamina), optionally at a given stamina.
+local function staminaCard(id, slotType, mode, stamina)
+    local c = require("engine.state").newPitchedCard(defById(id), slotType, mode)
+    if stamina then c.stamina = stamina end
+    return c
+end
+
+-- Stamina (harness-only board): pips at 5/7, 2/6 and 1/4 (orange), a tired Poacher (sweat
+-- drop, TIRED pill, red numbers), the opponent's face-up Stopper with pips and its face-down
+-- Destroyer with none; the zoom's TIRED line; then the tired Poacher really attacks the
+-- Stopper: "TIRED -300" beside Engine and Link-up in the overlay.
+S.stamina = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, kickOff },
+    { 1.5, function()
+        local m = store().match
+        local P, O = m.players.player.pitch, m.players.opponent.pitch
+        P.strikers[1]  = staminaCard("str-poacher", "striker", "attack", 0)
+        P.strikers[2]  = staminaCard("str-complete-forward", "striker", "attack", 1)
+        P.midfielder   = staminaCard("mid-box-to-box", "midfielder", "attack", 5)
+        P.defenders[1] = staminaCard("def-the-rock", "defender", "defense", 2)
+        P.keeper       = staminaCard("keeper-the-wall", "keeper", "defense")
+        O.defenders[1] = staminaCard("def-stopper", "defender", "attack", 3)
+        O.defenders[2] = staminaCard("def-destroyer", "defender", "defense", 0)
+        O.keeper       = staminaCard("keeper-iron-fists", "keeper", "defense")
+        m.turn, m.phase = 2, "attack"
+    end },
+    { 1.9, function(c) c.snap("board") end },
+    { 2.0, function() move(center(Layout.slot("player", "striker", 1))) end },
+    { 2.6, function(c) c.snap("zoom") end },
+    { 2.7, function()
+        move(640, 60)
+        local st = store()
+        st:declareAttack({ type = "striker", index = 1 }, { type = "defender", index = 1 })
+        require("scenes.match").debugOverlay("combat", st:popCombat())
+    end },
+    { 4.1, function(c) c.snap("tags") end },
+    { 4.6, function(c) c.snap("result") end },
+    { 4.8, function(c) c.quit() end },
+}
+
 return S

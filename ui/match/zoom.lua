@@ -88,6 +88,16 @@ function Zoom.statusLines(cardDef, pitched, pitch, hideHidden)
         modeText = pitched.revealed and "Mode: DEFENSE (revealed)" or "Mode: DEFENSE (face-down)"
     end
     add(modeText, "ink")
+    -- Stamina: hidden on the opponent's face-down cards; keepers never tire.
+    if Stamina.visible(pitched, not hideHidden) then
+        local total = Stamina.max(cardDef) or pitched.stamina
+        if Stamina.tired(pitched) then
+            add("TIRED: -" .. C.STAMINA.TIRED_ATK .. " ATK / -" .. C.STAMINA.TIRED_DEF
+                .. " DEF (stamina 0 / " .. total .. ")", "bad")
+        else
+            add("Stamina " .. pitched.stamina .. " / " .. total, pitched.stamina <= 1 and "warn" or "ink")
+        end
+    end
     if pitched.exhausted then add("EXHAUSTED", "bad") end
     if pitched.cannotActNextTurn or pitched.lockedNextTurn then add("Cannot act next turn", "bad") end
     if pitched.summonedThisTurn and pitched.mode == "attack" and pitched.slotType ~= "keeper"

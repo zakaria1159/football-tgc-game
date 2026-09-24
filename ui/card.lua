@@ -2,6 +2,8 @@
 -- Public API (unchanged contract for existing callers):
 --   Card.drawPitched(pitched, x, y, opts)   opts: w, h, faceDown, switchLabel, pitch, hideHidden, selected, target
 --   Card.switchLabel(pitched, slotType, ctx) position-switch ribbon text or nil (pure, unit-tested)
+--   Card.staminaView(pitched)               { filled, total, tired } or nil (pure, unit-tested)
+--   drawPitched opts.showStamina            pips (and the tired marker) on a pitched card
 --   Card.showsFace(pitched)                 face-up? (attack mode or revealed; never traps) — pure
 --   Card.drawInHand(cardDef, x, y, opts)    opts: w, h, selected   → returns {x,y,w,h}
 --   Card.drawLarge(cardDef, x, y, w)        → face + info sticker, returns total h
@@ -84,6 +86,12 @@ function Card.layout(w, h)
     -- the ribbon, the badges, the type tag or the gem.
     local kwH = math.max(9, 14 * s)
     L.kw = { cx = w / 2, y = L.ribbon.y - kwH - math.max(1, 2 * s), h = kwH, maxW = w - 16 * s }
+    -- Stamina pips (pitched cards): a row centred between the ATK and DEF badges, under the
+    -- name ribbon; on a card back it sits above the DEF label (backCy). The sweat drop (Tired)
+    -- is top-left, clear of the type tag, the gem, the DEF pill and the switch ribbon.
+    L.stamina = { cx = w / 2, cy = h - 13 * s, backCy = h - 36 * s, h = math.max(6, 9 * s),
+                  pip = math.max(3, 4.5 * s), gap = math.max(1, 1.5 * s) }
+    L.sweat   = { cx = 14 * s, cy = 27 * s, size = math.max(7, 14 * s) }
     return L
 end
 
@@ -174,6 +182,50 @@ local function drawToDefense(L, x, y)
         size = size, color = Theme.white, fit = true, minSize = 6,
     })
     Draw.arrowDown(rx + rw - 6 - arrow / 2, ry + fh / 2, arrow, Theme.white)
+end
+
+-- Sweat drop (Tired): a teardrop, drawn (the fonts have no emoji).
+local function drawSweat(cx, cy, size)
+    local r = size * 0.38
+    Draw.setColor(Theme.ink)
+    love.graphics.circle("fill", cx, cy + size * 0.18 + 1.5, r + 1.5, 16)
+    Draw.setColor(Theme.tired.sweat)
+    love.graphics.polygon("fill", cx, cy - size * 0.5, cx - r * 0.95, cy + size * 0.1, cx + r * 0.95, cy + size * 0.1)
+    love.graphics.circle("fill", cx, cy + size * 0.18, r, 16)
+    Draw.setColor(Theme.white, 0.8)
+    love.graphics.circle("fill", cx - r * 0.35, cy + size * 0.1, r * 0.28, 8)
+end
+
+-- Stamina row for a staminaView: pips on a dark backing (the last pip turns orange), or, at 0,
+-- a red TIRED pill plus the sweat drop. onBack: the card back's row position (no sweat drop
+-- there: it would sit on the back's FLIP UP ribbon).
+local function drawStamina(view, L, x, y, onBack)
+    local st = L.stamina
+    local cy = y + (onBack and st.backCy or st.cy)
+    if view.tired then
+        -- As wide as a 6-pip row (still clear of the badges at every card size), a bit taller.
+        local pw = Card.staminaRowWidth(L, 6)
+        local ph = st.h + 4 * L.s
+        Draw.pill(x + st.cx - pw / 2, cy - ph / 2, pw, ph, "TIRED", {
+            fill = Theme.tired.pill, textColor = Theme.white, border = math.max(1, math.floor(L.s)),
+            shadow = 0, size = math.max(6, math.floor(ph * 0.72)),
+        })
+        if not onBack then drawSweat(x + L.sweat.cx, y + L.sweat.cy, L.sweat.size) end
+        return
+    end
+    local rw = Card.staminaRowWidth(L, view.total)
+    local rx = x + st.cx - rw / 2
+    Draw.roundedFill(rx, cy - st.h / 2, rw, st.h, st.h / 2, { Theme.ink[1], Theme.ink[2], Theme.ink[3], 0.6 })
+    local low = view.filled <= 1
+    for i = 1, view.total do
+        local px = rx + st.h / 2 + (i - 1) * (st.pip + st.gap)
+        if i <= view.filled then
+            Draw.setColor(low and Theme.tired.low or Theme.grad.bonus[1])
+        else
+            Draw.setColor({ 1, 1, 1, 0.25 })
+        end
+        love.graphics.rectangle("fill", px, cy - st.pip / 2, st.pip, st.pip, st.pip * 0.3)
+    end
 end
 
 -- ── Face ──────────────────────────────────────────────────────────────────────
@@ -305,6 +357,21 @@ function Card.bonuses(pitched, pitch, hideHidden)
     return atk - (stats.atk or 0), def - (stats.def or 0), atkParts, defParts
 end
 
+-- Stamina pips for a pitched card: { filled, total, tired }, or nil when it never tires.
+-- Pure (unit-tested).
+function Card.staminaView(pitched)
+    if not pitched or pitched.stamina == nil then return nil end
+    local total = Stamina.max(pitched.definition) or pitched.stamina
+    return { filled = math.max(0, math.min(total, pitched.stamina)), total = total,
+             tired = pitched.stamina <= 0 }
+end
+
+-- Width of a row of n stamina pips at layout L, backing included. Pure (unit-tested).
+function Card.staminaRowWidth(L, n)
+    local st = L.stamina
+    return n * st.pip + (n - 1) * st.gap + st.h
+end
+
 -- Keyword pill text for a field card ("LINK-UP"), or nil (traps, strategies, no keyword).
 -- Pure (unit-tested).
 function Card.keywordLabel(cardDef)
@@ -335,6 +402,8 @@ function Card.drawPitched(pitched, x, y, opts)
     opts = opts or {}
     local w = opts.w or Theme.cardSize.pitch.w
     local h = opts.h or Theme.cardSize.pitch.h
+    local L = Card.layout(w, h)
+    local sv = opts.showStamina and Card.staminaView(pitched) or nil
 
     if not Card.showsFace(pitched) then
         Card.drawBack(x, y, w, h, {
@@ -342,6 +411,7 @@ function Card.drawPitched(pitched, x, y, opts)
             canFlip = opts.switchLabel ~= nil,
             selected = opts.selected, target = opts.target,
         })
+        if sv then drawStamina(sv, L, x, y, true) end
         return
     end
 
@@ -354,7 +424,6 @@ function Card.drawPitched(pitched, x, y, opts)
         tired = Stamina.tired(pitched),
     })
 
-    local L = Card.layout(w, h)
     if pitched.mode == "defense" then
         -- Revealed defense-mode card: face-up for both players, with a DEF marker.
         local ph = L.defPill.h
@@ -371,6 +440,7 @@ function Card.drawPitched(pitched, x, y, opts)
     elseif opts.switchLabel then
         drawToDefense(L, x, y)
     end
+    if sv then drawStamina(sv, L, x, y, false) end
 end
 
 function Card.drawInHand(cardDef, x, y, opts)
