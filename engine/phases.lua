@@ -310,19 +310,45 @@ end
 --   result table on direct combat resolution, OR
 --   { outcome = "empty_slot", ... } when a covering decision is needed, OR
 --   nil + error string on failure.
+-- Position switch (spec A2): the one rule shared by the engine (Phases.changeMode), the UI
+-- (Card.switchLabel) and the AI (AI.canSwitch). Pure: reads the card and ctx only.
+--   ctx = { isOwnTurn, phase, halfTimeBreak } — isOwnTurn: the card's owner is the active player.
+-- Once per turn per card, in its owner's summon phase: defense (face-down or revealed) →
+-- attack, or attack → defense (face-up: revealed). Never keepers or traps; never on the turn
+-- the card was played or substituted in, after it attacked this turn, while exhausted,
+-- during the half-time break or on the opponent's turn.
+-- Returns the mode the card would switch to ("attack" | "defense"), or nil + reason.
+function Phases.canSwitch(card, slotType, ctx)
+    ctx = ctx or {}
+    if not card then return nil, "no card in slot" end
+    if slotType == "keeper" or slotType == "trap" or card.slotType == "trap" then
+        return nil, "keepers and traps never change position"
+    end
+    if ctx.halfTimeBreak then return nil, "half-time" end
+    if not ctx.isOwnTurn or ctx.phase ~= "summon" then
+        return nil, "switch positions in your summon phase"
+    end
+    if card.summonedThisTurn then return nil, "played this turn: switch it next turn" end
+    if card.modeChanged then return nil, "already switched this turn" end
+    if card.usedAsAttacker then return nil, "attacked this turn" end
+    if card.exhausted then return nil, "exhausted" end
+    return card.mode == "attack" and "defense" or "attack"
+end
+
+-- Switches the active player's card in a slot (Phases.canSwitch). attack → defense leaves it
+-- face-up: revealed, because the opponent has already seen it. Returns true, or false + reason.
 function Phases.changeMode(matchState, slotType, slotIndex)
-    if matchState.phase ~= "summon" then return false, "can only change mode during summon phase" end
     local activeId = matchState.activePlayer
     local card = Phases._getSlotForPlayer(matchState, activeId, { type = slotType, index = slotIndex })
-    if not card then return false, "no card in slot" end
-    if slotType == "keeper" then return false, "keepers can never change mode" end
-    if card.mode == "attack" then return false, "card is already in attack mode" end
-    if card.summonedThisTurn then return false, "cannot flip a card summoned this turn" end
-    if card.modeChanged then return false, "already changed mode this turn" end
-    card.mode        = "attack"
+    local toMode, why = Phases.canSwitch(card, slotType, {
+        isOwnTurn = true, phase = matchState.phase, halfTimeBreak = matchState.halfTimeBreak,
+    })
+    if not toMode then return false, why end
+    card.mode        = toMode
     card.modeChanged = true
+    if toMode == "defense" then card.revealed = true end
     State.log(matchState, T.EventType.CARD_PLAYED,
-        { player = activeId, slot = slotType, index = slotIndex, mode = "attack", action = "mode_change" })
+        { player = activeId, slot = slotType, index = slotIndex, mode = toMode, action = "mode_change" })
     return true
 end
 

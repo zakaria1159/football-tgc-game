@@ -1,6 +1,7 @@
 -- Clash-portrait card renderer.
 -- Public API (unchanged contract for existing callers):
---   Card.drawPitched(pitched, x, y, opts)   opts: w, h, faceDown, canFlip, pitch, hideHidden, selected, target
+--   Card.drawPitched(pitched, x, y, opts)   opts: w, h, faceDown, switchLabel, pitch, hideHidden, selected, target
+--   Card.switchLabel(pitched, slotType, ctx) position-switch ribbon text or nil (pure, unit-tested)
 --   Card.showsFace(pitched)                 face-up? (attack mode or revealed; never traps) — pure
 --   Card.drawInHand(cardDef, x, y, opts)    opts: w, h, selected   → returns {x,y,w,h}
 --   Card.drawLarge(cardDef, x, y, w)        → face + info sticker, returns total h
@@ -17,6 +18,7 @@ local Fonts  = require("ui.fonts")
 local Combat = require("engine.combat")
 local Draw   = require("ui.kit.draw")
 local Icons  = require("ui.kit.icons")
+local Phases = require("engine.phases")
 
 local Card = {}
 
@@ -155,6 +157,22 @@ local function drawKeyword(label, L, x, y, alpha)
         fill = Theme.grad.keyword, textColor = Theme.inkText,
         border = math.max(1, math.floor(2 * L.s)), shadow = 0, size = size, alpha = alpha,
     })
+end
+
+-- "TO DEFENSE ▼" ribbon on an attack-mode card that may switch (the arrow is drawn: the fonts
+-- have no ▼). Same place and size as the revealed card's TO ATTACK ribbon (L.flip).
+local function drawToDefense(L, x, y)
+    local fh = L.flip.h
+    local rw = L.w * 0.9
+    local rx = x + (L.w - rw) / 2
+    local ry = y + L.flip.y
+    Draw.sticker(rx, ry, rw, fh, { r = fh * 0.2, fill = Theme.grad.def, border = 3, shadow = 4 })
+    local arrow = fh * 0.55
+    local size  = math.floor(fh * 0.6)
+    Draw.text("TO DEFENSE", rx + 6, ry + (fh - size) / 2 - size * 0.08, rw - 16 - arrow, "center", {
+        size = size, color = Theme.white, fit = true, minSize = 6,
+    })
+    Draw.arrowDown(rx + rw - 6 - arrow / 2, ry + fh / 2, arrow, Theme.white)
 end
 
 -- ── Face ──────────────────────────────────────────────────────────────────────
@@ -301,22 +319,13 @@ function Card.showsFace(pitched)
     return pitched.mode ~= "defense" or pitched.revealed == true
 end
 
--- True when a pitched card's flip (FLIP UP / TO ATTACK) ribbon may legally appear.
--- Mirrors engine.phases.Phases.changeMode: keepers and traps can never flip, and it must
--- be the card owner's own summon phase, with the card in defense mode, not exhausted, not
--- summoned this turn and not already flipped this turn.
--- ctx: { isOwnTurn, phase } — isOwnTurn is true when the card's owner is the active player.
--- Pure (unit-tested).
-function Card.canFlip(pitched, slotType, ctx)
-    ctx = ctx or {}
-    if not pitched then return false end
-    if slotType == "keeper" or slotType == "trap" then return false end
-    if not ctx.isOwnTurn or ctx.phase ~= "summon" then return false end
-    if pitched.mode ~= "defense" then return false end
-    if pitched.exhausted then return false end
-    if pitched.summonedThisTurn then return false end
-    if pitched.modeChanged then return false end
-    return true
+-- Position-switch ribbon for a pitched card: "FLIP UP" (face-down), "TO ATTACK" (revealed
+-- defense), "TO DEFENSE" (attack mode), or nil when Phases.canSwitch refuses (the rule the
+-- engine uses). ctx: { isOwnTurn, phase, halfTimeBreak }. Pure (unit-tested).
+function Card.switchLabel(pitched, slotType, ctx)
+    if not Phases.canSwitch(pitched, slotType, ctx) then return nil end
+    if pitched.mode == "attack" then return "TO DEFENSE" end
+    return pitched.revealed and "TO ATTACK" or "FLIP UP"
 end
 
 function Card.drawPitched(pitched, x, y, opts)
@@ -327,7 +336,7 @@ function Card.drawPitched(pitched, x, y, opts)
     if not Card.showsFace(pitched) then
         Card.drawBack(x, y, w, h, {
             label = (not opts.faceDown) and (pitched.slotType == "trap" and "TRAP" or "DEF") or nil,
-            canFlip = opts.canFlip,
+            canFlip = opts.switchLabel ~= nil,
             selected = opts.selected, target = opts.target,
         })
         return
@@ -341,20 +350,22 @@ function Card.drawPitched(pitched, x, y, opts)
         exhausted = pitched.exhausted, selected = opts.selected, target = opts.target,
     })
 
-    -- Revealed defense-mode card: face-up for both players, with a DEF marker.
+    local L = Card.layout(w, h)
     if pitched.mode == "defense" then
-        local L  = Card.layout(w, h)
+        -- Revealed defense-mode card: face-up for both players, with a DEF marker.
         local ph = L.defPill.h
         local pw = ph * 2.6
         Draw.pill(x + (w - pw) / 2, y + L.defPill.y, pw, ph, "DEF", {
             fill = Theme.grad.def, textColor = Theme.white,
             border = math.max(1, math.floor(2 * L.s)), shadow = 0,
         })
-        if opts.canFlip then
-            Draw.ribbon(x + w / 2, y + L.flip.y, w * 0.9, L.flip.h, "TO ATTACK", {
+        if opts.switchLabel then
+            Draw.ribbon(x + w / 2, y + L.flip.y, w * 0.9, L.flip.h, opts.switchLabel, {
                 fill = Theme.grad.bonus, textColor = Theme.white,
             })
         end
+    elseif opts.switchLabel then
+        drawToDefense(L, x, y)
     end
 end
 

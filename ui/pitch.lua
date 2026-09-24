@@ -125,8 +125,10 @@ local function drawOccupied(pitched, r, owner, slotType, slotIndex, st, pitch, p
     local opts = {
         w = r.w, h = r.h, pitch = pitch, hideHidden = owner == "opponent",
         faceDown = (owner == "opponent") and not Card.showsFace(pitched),
-        canFlip  = owner == "player" and
-                   Card.canFlip(pitched, slotType, { isOwnTurn = st.activePlayer == "player", phase = st.phase }),
+        -- Position-switch ribbon (Phases.canSwitch via Card.switchLabel), your cards only.
+        switchLabel = owner == "player" and Card.switchLabel(pitched, slotType, {
+                          isOwnTurn = st.activePlayer == "player", phase = st.phase,
+                          halfTimeBreak = st.halfTimeBreak }) or nil,
         selected = owner == "player" and sa ~= nil and sa.type == slotType and sa.index == slotIndex,
         target   = sa ~= nil and listHas(st.attackTargetSlots, owner, slotType, slotIndex),
     }
@@ -145,7 +147,8 @@ end
 function Pitch.draw(match, st, anims)
     if not match then return {} end
     st = st or {}
-    st.activePlayer = match.activePlayer
+    st.activePlayer  = match.activePlayer
+    st.halfTimeBreak = match.halfTimeBreak
     anims = anims or {}
     local hidden, pops = anims.hidden or {}, anims.pop or {}
     local P = Layout.pitch

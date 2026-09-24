@@ -361,15 +361,12 @@ function AI._hasDefenderCoverer(pitch)
     return ready(k) and Resolver.canCoverSlot(k, "keeper", "defender") or false
 end
 
--- May the AI flip this card of its own now? Mirrors Card.canFlip (ui/card.lua) and the
--- checks of Phases.changeMode: summon phase, never a keeper or trap, defense mode, not
--- exhausted, not summoned or already flipped this turn, not refused this turn.
-function AI.canFlip(match, card, slotType)
-    if not card or match.phase ~= "summon" then return false end
-    if slotType == "keeper" or slotType == "trap" then return false end
-    if card.mode ~= "defense" or card.exhausted then return false end
-    if card.summonedThisTurn or card.modeChanged then return false end
-    return card.aiRefusedFlipTag ~= AI.planTag(match)
+-- The position the AI may switch this card of its own to now ("attack" | "defense"), or nil:
+-- Phases.canSwitch (the engine's rule) on the AI's own view, and not refused this turn.
+function AI.canSwitch(match, card, slotType)
+    if not card or card.aiRefusedFlipTag == AI.planTag(match) then return nil end
+    return (Phases.canSwitch(card, slotType, { isOwnTurn = true, phase = match.phase,
+                                                halfTimeBreak = match.halfTimeBreak }))
 end
 
 -- Pick the slot for a field card and the mode to play it in. Defender- and
@@ -462,7 +459,7 @@ function AI._planFlips(match, used)
     end
 
     local function consider(card, slotType, slotIndex)
-        if not card or not card.revealed or not AI.canFlip(match, card, slotType) then return end
+        if not card or not card.revealed or AI.canSwitch(match, card, slotType) ~= "attack" then return end
         if card.cannotActNextTurn then return end   -- locked: it can neither cover nor attack
         local covers = AI._defenderGap(used) and not used.coverer
                        and (slotType == "midfielder"

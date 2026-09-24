@@ -846,12 +846,14 @@ function Match.mousepressed(x, y, button)
                 return
             end
 
-            -- Flip defense → attack (no hand card selected, own card in defense mode)
-            if match.phase == "summon" and not selectedHandCard and slot.owner == "player" then
+            -- Switch position (no hand card selected, your own card): FLIP UP / TO ATTACK /
+            -- TO DEFENSE, as Phases.canSwitch allows; a refusal says why.
+            if match.phase == "summon" and not selectedHandCard and slot.owner == "player"
+               and slot.slotType ~= "trap" then
                 local pitchCard = Match.getCardInSlot(match.players.player.pitch, slot)
-                if pitchCard and pitchCard.mode == "defense" then
+                if pitchCard then
                     local ok, err = store:changeMode(slot.slotType, slot.slotIndex)
-                    if not ok then Match.flash(err or "Cannot flip") end
+                    if not ok then Match.flash(err or "Cannot switch") end
                     return
                 end
             end

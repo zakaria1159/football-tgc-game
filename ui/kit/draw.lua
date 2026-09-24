@@ -429,6 +429,13 @@ function Draw.arrow(cx, cy, size, dir, color, alphaMul)
     love.graphics.polygon("fill", cx - dir * h * 0.8, cy - h, cx + dir * h, cy, cx - dir * h * 0.8, cy + h)
 end
 
+-- Solid downward triangle (the fonts have no ▼).
+function Draw.arrowDown(cx, cy, size, color, alphaMul)
+    local h = size / 2
+    Draw.setColor(color or Theme.white, alphaMul)
+    love.graphics.polygon("fill", cx - h, cy - h * 0.8, cx + h, cy - h * 0.8, cx, cy + h)
+end
+
 -- ✕ glyph (the fonts have none): two thick strokes.
 function Draw.cross(cx, cy, size, color, width, alphaMul)
     local h = size / 2
