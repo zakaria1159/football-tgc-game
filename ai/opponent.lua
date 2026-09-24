@@ -36,9 +36,10 @@ function AI.executeAction(store, action)
     elseif action.type == "summon" then
         store:summonCard(action.cardId, action.slotType, action.slotIndex, action.mode)
 
-    elseif action.type == "flip" then
-        -- Face-up defence -> attack mode (Phases.changeMode). Refused: tag the card so
-        -- _planFlips doesn't plan the same flip again this turn.
+    elseif action.type == "flip" or action.type == "toDefense" then
+        -- A position switch (Phases.changeMode): defence → attack ("flip") or attack →
+        -- face-up defence ("toDefense"). Refused: tag the card so the planners don't plan it
+        -- again this turn.
         local ok, err = store:changeMode(action.slotType, action.slotIndex)
         if not ok then
             local card = Phases._getSlot(store.match.players.opponent.pitch,
@@ -278,8 +279,10 @@ function AI._planSummons(match)
         end
     end
 
-    -- Flips after the summons, so they see the slots this turn's summons fill.
+    -- Flips after the summons, so they see the slots this turn's summons fill; then pulls
+    -- back to defence (AI._planSwitches).
     for _, f in ipairs(AI._planFlips(match, used)) do table.insert(actions, f) end
+    for _, sw in ipairs(AI._planSwitches(match, used)) do table.insert(actions, sw) end
 
     return actions
 end
@@ -433,6 +436,24 @@ local function evalFight(atkStat, defCard, slotType, dPitch)
     end
 end
 
+-- True when this AI card, attacking from slotType now, beats a face-up target it may attack
+-- (a defender-slot card against an enemy striker, the midfielder against the enemy
+-- midfielder). False on the opening turn of a half (no attacks) and for other slots.
+function AI._winsNow(match, card, slotType)
+    if State.isOpeningTurn(match) then return false end
+    local pitch, ePitch = match.players.opponent.pitch, match.players.player.pitch
+    local atk = Combat.attackStat(card, slotType, pitch, ePitch)
+    if slotType == "midfielder" then
+        return evalFight(atk, ePitch.midfielder, "midfielder", ePitch) == "win"
+    end
+    if slotType == "defender" then
+        for i = 1, C.PITCH.MAX_STRIKERS do
+            if evalFight(atk, ePitch.strikers[i], "striker", ePitch) == "win" then return true end
+        end
+    end
+    return false
+end
+
 -- Flips planned for this summon phase (see _planSummons; `used` holds the slots filled by
 -- this turn's summons). Only revealed cards flip (a face-down card keeps its secret). A
 -- revealed defence-mode card flips to attack mode when either
@@ -441,22 +462,8 @@ end
 --   attack: it wins a fight now against a face-up target it may attack (a defender-slot
 --           card against an enemy striker, the midfielder against the enemy midfielder).
 function AI._planFlips(match, used)
-    local pitch  = match.players.opponent.pitch
-    local ePitch = match.players.player.pitch
-    local out    = {}
-    local canAttack = not State.isOpeningTurn(match)
-
-    local function wins(card, slotType)
-        if not canAttack then return false end
-        local atk = Combat.attackStat(card, slotType, pitch, ePitch)
-        if slotType == "midfielder" then
-            return evalFight(atk, ePitch.midfielder, "midfielder", ePitch) == "win"
-        end
-        for i = 1, C.PITCH.MAX_STRIKERS do
-            if evalFight(atk, ePitch.strikers[i], "striker", ePitch) == "win" then return true end
-        end
-        return false
-    end
+    local pitch = match.players.opponent.pitch
+    local out   = {}
 
     local function consider(card, slotType, slotIndex)
         if not card or not card.revealed or AI.canSwitch(match, card, slotType) ~= "attack" then return end
@@ -465,12 +472,97 @@ function AI._planFlips(match, used)
                        and (slotType == "midfielder"
                             or (Resolver.canCoverSlot(card, "defender", "defender")
                                 and not Resolver.coversInDefense(card, "defender", "defender")))
-        if covers or wins(card, slotType) then
+        if covers or AI._winsNow(match, card, slotType) then
             table.insert(out, { type = "flip", slotType = slotType, slotIndex = slotIndex })
             if covers then used.coverer = true end
         end
     end
 
+    consider(pitch.midfielder, "midfielder", 0)
+    for i = 1, C.PITCH.MAX_DEFENDERS do consider(pitch.defenders[i], "defender", i) end
+    return out
+end
+
+-- ── Position switches to defence (spec A2) ────────────────────────────────────
+
+-- The strongest ATK the enemy's face-up, attack-mode cards could bring against the AI card in
+-- slotType on the enemy's next turn, from the AI's view (visible bonuses). Enemy strikers
+-- attack the defender slots (and the midfielder slot while the AI has no defender), the enemy
+-- midfielder attacks the midfielder slot, enemy defenders attack the striker slots. Locked
+-- cards (cannotActNextTurn) are left out. 0 when nothing threatens it.
+function AI._threatAgainst(match, slotType)
+    local pitch  = match.players.opponent.pitch
+    local ePitch = match.players.player.pitch
+    local best = 0
+    local function consider(c, eSlot)
+        if c and c.mode == "attack" and not c.cannotActNextTurn then
+            local atk = Combat.attackStat(c, eSlot, ePitch, pitch, nil, true)
+            if atk > best then best = atk end
+        end
+    end
+    local hasDefender = false
+    for i = 1, C.PITCH.MAX_DEFENDERS do
+        if pitch.defenders[i] then hasDefender = true end
+    end
+    if slotType == "defender" or (slotType == "midfielder" and not hasDefender) then
+        for i = 1, C.PITCH.MAX_STRIKERS do consider(ePitch.strikers[i], "striker") end
+    end
+    if slotType == "midfielder" then consider(ePitch.midfielder, "midfielder") end
+    if slotType == "striker" then
+        for i = 1, C.PITCH.MAX_DEFENDERS do consider(ePitch.defenders[i], "defender") end
+    end
+    return best
+end
+
+-- Weak: no winning attack this turn. A striker-slot card is never weak here (it shoots or
+-- clears defenders).
+function AI._weak(match, card, slotType)
+    if slotType == "striker" then return false end
+    return not AI._winsNow(match, card, slotType)
+end
+
+-- True when `card` (in slotType) is the only ready card covering an empty defender slot (see
+-- AI._hasDefenderCoverer): switching it to defence would leave the gap uncovered.
+function AI._soleCoverer(pitch, card, slotType)
+    local function ready(c) return c and not c.exhausted and not c.cannotActNextTurn end
+    local function coversGap(c, st)
+        if not ready(c) then return false end
+        if st == "midfielder" then return c.mode == "attack" end
+        if st == "defender" then
+            return (c.mode == "attack" or Resolver.coversInDefense(c, "defender", "defender"))
+                   and Resolver.canCoverSlot(c, "defender", "defender")
+        end
+        if st == "keeper" then return Resolver.canCoverSlot(c, "keeper", "defender") end
+        return false
+    end
+    if not coversGap(card, slotType) then return false end
+    if pitch.midfielder ~= card and coversGap(pitch.midfielder, "midfielder") then return false end
+    for i = 1, C.PITCH.MAX_DEFENDERS do
+        local d = pitch.defenders[i]
+        if d ~= card and coversGap(d, "defender") then return false end
+    end
+    return not coversGap(pitch.keeper, "keeper")
+end
+
+-- Switches to defence planned for this summon phase. An attack-mode AI card (never a keeper)
+-- goes to face-up defence when it may switch (AI.canSwitch) and both hold:
+--   exposed: an enemy card could attack it next turn with more ATK than its DEF (it would be
+--            destroyed; in defence mode that costs no LP);
+--   weak:    AI._weak.
+-- Never the card that alone covers an open defender slot.
+function AI._planSwitches(match, used)
+    local pitch = match.players.opponent.pitch
+    local out = {}
+    local function consider(card, slotType, slotIndex)
+        if not card or card.mode ~= "attack" then return end
+        if AI.canSwitch(match, card, slotType) ~= "defense" then return end
+        local def = Combat.defendStat(card, slotType, pitch, false)
+        if AI._threatAgainst(match, slotType) <= def then return end
+        if not AI._weak(match, card, slotType) then return end
+        if AI._defenderGap(used) and AI._soleCoverer(pitch, card, slotType) then return end
+        table.insert(out, { type = "toDefense", slotType = slotType, slotIndex = slotIndex })
+    end
+    for i = 1, C.PITCH.MAX_STRIKERS do consider(pitch.strikers[i], "striker", i) end
     consider(pitch.midfielder, "midfielder", 0)
     for i = 1, C.PITCH.MAX_DEFENDERS do consider(pitch.defenders[i], "defender", i) end
     return out
