@@ -49,9 +49,14 @@ end
 -- Place a card from hand onto the pitch.
 -- mode: "attack" (face up) or "defense" (face down)
 -- freeSummon = true skips the summon-count check and increment (used by Substitution).
--- Returns true on success.
+-- An OCCUPIED slot is a substitution (spec B2; Phases.canSubstitute): the new card comes on
+-- and the card that was there goes back to hand as a plain definition (fully rested when it
+-- is played again). It uses a summon and one of the half's C.MATCH.SUBS_PER_HALF
+-- substitutions; a keeper-slot substitution is logged as a keeper swap.
+-- Returns true on success, or false + reason.
 function Phases.summon(matchState, cardId, slotType, slotIndex, mode, freeSummon)
-    local player = State.activePlayerState(matchState)
+    local activeId = matchState.activePlayer
+    local player   = State.activePlayerState(matchState)
 
     -- Strategy cards cannot be summoned
     if slotType ~= "trap" then
@@ -83,73 +88,59 @@ function Phases.summon(matchState, cardId, slotType, slotIndex, mode, freeSummon
         local trapCard = State.newPitchedCard(cardDef, "trap", "defense")
         table.insert(player.pitch.traps, trapCard)
         State.log(matchState, T.EventType.CARD_PLAYED,
-            { player = matchState.activePlayer, card = cardId, slot = "trap", mode = "defense" })
+            { player = activeId, card = cardId, slot = "trap", mode = "defense" })
         return true
     end
 
     mode = mode or "attack"
-    local pitched = State.newPitchedCard(cardDef, slotType, mode)
-    pitched.summonedThisTurn = true   -- can't flip this turn; attacks next turn unless Pace (D1)
-
-    if slotType == "keeper" then
-        local old = player.pitch.keeper
-        if old then
-            -- Keeper substitution: a keeper card may replace the pitched keeper (a normal
-            -- summon, never a free one). The old keeper goes back to hand as a plain card
-            -- definition, so its per-half counters and flags are gone.
-            if freeSummon or cardDef.type ~= "keeper" then
-                table.insert(player.hand, cardDef)
-                return false, "keeper slot occupied"
-            end
-            player.pitch.keeper = pitched
-            table.insert(player.hand, old.definition)
-            matchState.summonCount = matchState.summonCount + 1
-            State.log(matchState, T.EventType.CARD_PLAYED,
-                { player = matchState.activePlayer, card = cardId, slot = "keeper", index = 0,
-                  mode = mode, action = "keeper_swap", name = cardDef.name,
-                  replaced = old.definition.id, replacedName = old.definition.name })
-            Phases._afterSummon(matchState, matchState.activePlayer, pitched)
-            return true
-        end
-        player.pitch.keeper = pitched
-    elseif slotType == "defender" then
-        if slotIndex < 1 or slotIndex > C.PITCH.MAX_DEFENDERS then
-            table.insert(player.hand, cardDef)
-            return false, "defender slot out of range"
-        end
-        if player.pitch.defenders[slotIndex] then
-            table.insert(player.hand, cardDef)
-            return false, "defender slot occupied"
-        end
-        player.pitch.defenders[slotIndex] = pitched
-    elseif slotType == "midfielder" then
-        if player.pitch.midfielder then
-            table.insert(player.hand, cardDef)
-            return false, "midfielder slot occupied"
-        end
-        player.pitch.midfielder = pitched
-    elseif slotType == "striker" then
-        if slotIndex < 1 or slotIndex > C.PITCH.MAX_STRIKERS then
-            table.insert(player.hand, cardDef)
-            return false, "striker slot out of range"
-        end
-        if player.pitch.strikers[slotIndex] then
-            table.insert(player.hand, cardDef)
-            return false, "striker slot occupied"
-        end
-        player.pitch.strikers[slotIndex] = pitched
-    else
+    if slotType ~= "keeper" and slotType ~= "defender" and slotType ~= "midfielder" and slotType ~= "striker" then
         table.insert(player.hand, cardDef)
         return false, "invalid slot"
     end
+    if slotType == "defender" and (slotIndex < 1 or slotIndex > C.PITCH.MAX_DEFENDERS) then
+        table.insert(player.hand, cardDef)
+        return false, "defender slot out of range"
+    end
+    if slotType == "striker" and (slotIndex < 1 or slotIndex > C.PITCH.MAX_STRIKERS) then
+        table.insert(player.hand, cardDef)
+        return false, "striker slot out of range"
+    end
 
+    local slot    = { type = slotType, index = slotIndex }
+    local pitched = State.newPitchedCard(cardDef, slotType, mode)
+    pitched.summonedThisTurn = true   -- can't switch this turn; attacks next turn unless Pace (D1)
+
+    local old = Phases._getSlot(player.pitch, slot)
+    if old then
+        -- Substitution. Never the free Substitution-card placement (it fills an empty slot).
+        if freeSummon then
+            table.insert(player.hand, cardDef)
+            return false, slotType .. " slot occupied"
+        end
+        local ok, why = Phases.canSubstitute(matchState, activeId, cardDef, slotType, slotIndex)
+        if not ok then
+            table.insert(player.hand, cardDef)
+            return false, why
+        end
+        Phases._setSlot(player.pitch, slot, pitched)
+        table.insert(player.hand, old.definition)
+        matchState.summonCount = matchState.summonCount + 1
+        player.subsUsed = (player.subsUsed or 0) + 1
+        State.log(matchState, T.EventType.CARD_PLAYED,
+            { player = activeId, card = cardId, slot = slotType, index = slotIndex, mode = mode,
+              action = slotType == "keeper" and "keeper_swap" or "substitution",
+              name = cardDef.name, replaced = old.definition.id, replacedName = old.definition.name })
+        Phases._afterSummon(matchState, activeId, pitched)
+        return true
+    end
+
+    Phases._setSlot(player.pitch, slot, pitched)
     if not freeSummon then
         matchState.summonCount = matchState.summonCount + 1
     end
     State.log(matchState, T.EventType.CARD_PLAYED,
-        { player = matchState.activePlayer, card = cardId, slot = slotType,
-          index = slotIndex, mode = mode })
-    Phases._afterSummon(matchState, matchState.activePlayer, pitched)   -- Press
+        { player = activeId, card = cardId, slot = slotType, index = slotIndex, mode = mode })
+    Phases._afterSummon(matchState, activeId, pitched)   -- Press
     return true
 end
 
@@ -161,17 +152,34 @@ function Phases._afterSummon(matchState, ownerId, pitched)
     end
 end
 
--- May the active player bring cardDef on as a keeper substitution now? A keeper card from
--- hand onto an occupied keeper slot, in the summon phase, outside a half-time break, with a
--- summon left (it costs one, like Phases.summon).
+-- May playerId bring cardDef on for the card in (slotType, slotIndex) now? A substitution
+-- (spec B2): a field card or keeper from hand onto one of playerId's OCCUPIED slots. The
+-- keeper slot takes keeper cards only; any other slot takes any field card, as summoning
+-- does. It must be the summon phase, outside the half-time break, with a summon left (it uses
+-- one) and fewer than C.MATCH.SUBS_PER_HALF substitutions this half (keeper swaps included).
+-- Reads matchState.players[playerId] (the AI passes its own seat on a mirrored view).
+-- Returns true, or false + reason.
+function Phases.canSubstitute(matchState, playerId, cardDef, slotType, slotIndex)
+    local t = cardDef and cardDef.type
+    if t ~= "striker" and t ~= "midfielder" and t ~= "defender" and t ~= "keeper" then
+        return false, "only field cards and keepers come on as substitutes"
+    end
+    if matchState.halfTimeBreak then return false, "half-time" end
+    if matchState.phase ~= "summon" then return false, "substitute in your summon phase" end
+    local ps = matchState.players[playerId]
+    if not Phases._getSlot(ps.pitch, { type = slotType, index = slotIndex }) then
+        return false, "no card to substitute"
+    end
+    if slotType == "keeper" and t ~= "keeper" then return false, "keeper slot occupied" end
+    local limit = (ps.nextTurnSummonLimit or C.MATCH.MAX_SUMMONS_PER_TURN) + (matchState.bonusSummons or 0)
+    if matchState.summonCount >= limit then return false, "summon limit reached" end
+    if (ps.subsUsed or 0) >= C.MATCH.SUBS_PER_HALF then return false, "no substitutions left this half" end
+    return true
+end
+
+-- Keeper swap for the active player: a substitution onto its keeper slot. Boolean.
 function Phases.canKeeperSwap(matchState, cardDef)
-    if not cardDef or cardDef.type ~= "keeper" then return false end
-    if matchState.halfTimeBreak or matchState.phase ~= "summon" then return false end
-    local player = State.activePlayerState(matchState)
-    if not player.pitch.keeper then return false end
-    local limit = (player.nextTurnSummonLimit or C.MATCH.MAX_SUMMONS_PER_TURN)
-                + (matchState.bonusSummons or 0)
-    return matchState.summonCount < limit
+    return (Phases.canSubstitute(matchState, matchState.activePlayer, cardDef, "keeper", 0)) == true
 end
 
 -- ─── STRATEGY CARDS ──────────────────────────────────────────────────────────

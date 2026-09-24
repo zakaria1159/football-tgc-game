@@ -1,5 +1,5 @@
 -- Match bottom area (y 540–800) except the hand: portrait, deck pile, toast stack,
--- SUMMONS pill, START ATTACK / END TURN and the hint line. (The mode is chosen on the slot:
+-- SUMMONS and SUBS pills, START ATTACK / END TURN and the hint line. (The mode is chosen on the slot:
 -- ui/match/modepicker.lua.)
 -- Clicks are mapped by Layout.buttonAt; this module only draws and animates.
 local Theme     = require("ui.theme")
@@ -61,6 +61,15 @@ local function drawSummons(match)
     })
 end
 
+-- "SUBS n / 3": substitutions used this half (grey once they are all used).
+local function drawSubs(match)
+    local r = Layout.bottom.subs
+    local used, max = Stats.subs(match)
+    Draw.pill(r.x, r.y, r.w, r.h, "SUBS " .. used .. " / " .. max, {
+        fill = used >= max and Theme.outcome.grey or Theme.white, textColor = Theme.inkText, size = 18,
+    })
+end
+
 -- st = { toasts = Toasts instance, hint = string }
 function BottomBar.draw(match, st)
     if not buttons then BottomBar.reset() end
@@ -68,6 +77,7 @@ function BottomBar.draw(match, st)
     drawDeck(#match.players.player.deck)
     if st.toasts then st.toasts:draw() end
     drawSummons(match)
+    drawSubs(match)
     if match.phase == "summon" and match.activePlayer == "player" then buttons.startAttack:draw() end
     buttons.endTurn:draw()
     if st.hint and st.hint ~= "" then

@@ -305,7 +305,7 @@ function AI._keeperValue(def, enemyPenalties, saves)
 end
 
 -- The keeper-swap summon action, or nil. Only when a keeper is in goal and the engine would
--- accept it (Phases.canKeeperSwap).
+-- accept it (Phases.canSubstitute: within the summon and 3-per-half substitution budgets).
 function AI._planKeeperSwap(match)
     local player = match.players.opponent
     local cur    = player.pitch.keeper
@@ -325,7 +325,8 @@ function AI._planKeeperSwap(match)
             if not best or v > bestV then best, bestV = c, v end
         end
     end
-    if not best or not Phases.canKeeperSwap(match, best) then return nil end
+    -- Phases.canSubstitute on the AI's own seat: a summon and a substitution left (spec B2).
+    if not best or not Phases.canSubstitute(match, "opponent", best, "keeper", 0) then return nil end
     local curV = AI._keeperValue(cur.definition, enemyPenalties, cur.saves)
     if bestV - curV < AI.KEEPER_SWAP_MARGIN then return nil end
     return { type = "summon", cardId = best.id, slotType = "keeper", slotIndex = 0, mode = "defense" }

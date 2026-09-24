@@ -503,9 +503,9 @@ function Match.hintText(match)
         elseif selectedHandCard and selectedHandCard.type == "trap" then
             return "Click a TRAP slot by your goal to set it face-down  ·  ESC to cancel"
         elseif selectedHandCard and Phases.canKeeperSwap(match, selectedHandCard) then
-            return "Click your GK to bring this keeper on (uses a summon)"
+            return "Click your GK to bring this keeper on (a summon and a sub)"
         elseif selectedHandCard then
-            return "Click a glowing slot, then choose ATTACK or DEFEND  ·  ESC to cancel"
+            return "Click a glowing slot (an occupied one is a sub: a summon + 1 SUB), then ATTACK or DEFEND  ·  ESC to cancel"
         end
         return "Select a card  ·  Click your card to switch position  ·  START ATTACK or END TURN"
     elseif match.phase == "attack" then
@@ -577,24 +577,17 @@ function Match.getHighlightedSlots(match)
         return slots
     end
 
-    -- Field card → only empty slots (summon phase only); a keeper card also targets your
-    -- occupied GK slot (keeper substitution, Phases.canKeeperSwap).
-    if match.phase ~= "summon" then return {} end
-    if not pitch.keeper
-       or (match.activePlayer == "player" and Phases.canKeeperSwap(match, selectedHandCard)) then
-        table.insert(slots, { slotType="keeper", slotIndex=0, owner="player" })
-    end
-    if not pitch.midfielder then
-        table.insert(slots, { slotType="midfielder", slotIndex=0, owner="player" })
-    end
-    for i = 1, C.PITCH.MAX_DEFENDERS do
-        if not pitch.defenders[i] then
-            table.insert(slots, { slotType="defender", slotIndex=i, owner="player" })
-        end
-    end
-    for i = 1, C.PITCH.MAX_STRIKERS do
-        if not pitch.strikers[i] then
-            table.insert(slots, { slotType="striker", slotIndex=i, owner="player" })
+    -- Field card (your summon phase): every empty slot, and every occupied slot it may
+    -- substitute into (Phases.canSubstitute: keeper cards only onto your GK; a summon and a
+    -- substitution left).
+    if match.phase ~= "summon" or match.activePlayer ~= "player" then return {} end
+    for _, s in ipairs(Layout.slots()) do
+        if s.owner == "player" then
+            local occupied = Match.getCardInSlot(pitch, s) ~= nil
+            if not occupied
+               or Phases.canSubstitute(match, "player", selectedHandCard, s.slotType, s.slotIndex) then
+                table.insert(slots, { slotType = s.slotType, slotIndex = s.slotIndex, owner = "player" })
+            end
         end
     end
     return slots
@@ -876,7 +869,15 @@ function Match.mousepressed(x, y, button)
             -- Place a hand card on a glowing slot of yours: a trap goes straight in
             -- (face-down); a field card opens the mode picker on the slot.
             if match.phase == "summon" and selectedHandCard and slot.owner == "player" then
-                if not Match.slotAccepts(match, slot) then return end
+                if not Match.slotAccepts(match, slot) then
+                    -- An occupied slot that won't take a substitute says why.
+                    if Match.getCardInSlot(match.players.player.pitch, slot) then
+                        local _, why = Phases.canSubstitute(match, "player", selectedHandCard,
+                                                            slot.slotType, slot.slotIndex)
+                        if why then Match.flash(why) end
+                    end
+                    return
+                end
                 if ModePicker.needsPicker(selectedHandCard) then
                     picker = ModePicker.open(selectedHandCard, slot, substitutionFreedSlot ~= nil)
                 else

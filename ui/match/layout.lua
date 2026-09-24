@@ -41,6 +41,7 @@ Layout.bottom = {
     toastX = 208, toastW = 224, toastH = 28, toastGap = 6, toastBottomY = 640,
     hand        = { x = 444, y = 540, w = 512, h = 260, cx = 700, baseY = 766, maxHoverX = 990 },
     summons     = { x = 996, y = 552, w = 240, h = 34 },
+    subs        = { x = 996, y = 602, w = 240, h = 34 },   -- SUBS n / 3 (where the mode toggle was)
     startAttack = { x = 996, y = 652, w = 240, h = 52 },
     endTurn     = { x = 996, y = 716, w = 240, h = 70 },
     hint        = { x = 300, y = 526, w = 680, h = 14 },

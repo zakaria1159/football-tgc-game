@@ -64,6 +64,7 @@ local function newPlayerState(id, deck)
         halfGoals        = 0,       -- goals scored this half (shots that dealt LP damage, minus VAR)
         halfCardsLost    = 0,       -- own field cards destroyed this half
         nextTurnSummonLimit = nil,  -- set by TIME_WASTING trap
+        subsUsed         = 0,       -- substitutions this half (keeper swaps included; spec B2)
     }
 end
 
@@ -312,6 +313,7 @@ function State._resetHalf(matchState, newHalf)
         ps.halfGoals           = 0
         ps.halfCardsLost       = 0
         ps.nextTurnSummonLimit = nil
+        ps.subsUsed            = 0     -- 3 substitutions per half; Extra Time gets 3 too
 
         -- Collect all non-destroyed cards (hand + pitch) back into pool for redeal.
         -- Graveyard (permanently destroyed) stays out.

@@ -53,7 +53,7 @@ end)
 T.test("top bar and bottom area rects are on screen and disjoint", function()
     local T0, B = Layout.top, Layout.bottom
     local rects = { T0.youBar, T0.oppBar, T0.phasePill, T0.turnChip, T0.pause, T0.music, T0.log, T0.oppDeck,
-        B.portrait, B.deck, B.deckCount, B.summons, B.startAttack, B.endTurn, B.hint, B.hand,
+        B.portrait, B.deck, B.deckCount, B.summons, B.subs, B.startAttack, B.endTurn, B.hint, B.hand,
         Layout.toastRect(1), Layout.toastRect(2), Layout.toastRect(3) }
     local screen = { x = 0, y = 0, w = 1280, h = 800 }
     for i = 1, #rects do

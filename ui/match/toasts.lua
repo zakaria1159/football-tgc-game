@@ -111,6 +111,13 @@ function Toasts.describe(entry)
             if mine then return "You brought on " .. tostring(p.name or "a keeper") .. " in goal", "info" end
             return "Opp changed keeper", "info"
         end
+        if p.action == "substitution" then
+            if mine then
+                return "You brought on " .. tostring(p.name or "a sub") .. " for "
+                    .. tostring(p.replacedName or "a card"), "info"
+            end
+            return "Opp made a substitution", "info"
+        end
         if p.slot == "trap" then return who .. " set a trap", "trap" end
         return who .. " summoned a " .. string.upper(tostring(p.slot or "card")), "info"
     end
