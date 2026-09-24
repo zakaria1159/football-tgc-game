@@ -1,33 +1,33 @@
+-- Font cache. Display = Lilita One (headings, numbers, buttons, card names).
+-- Body = Nunito Black (ability text, toasts, hints).
 local Fonts = {}
-local _cache = {}
 
-local function tryLoad(path, size)
+local DISPLAY = "assets/fonts/LilitaOne-Regular.ttf"
+local BODY    = "assets/fonts/Nunito-Black.ttf"
+
+local _display, _body = {}, {}
+
+local function load(cache, path, size)
+    size = math.max(6, math.floor(size + 0.5))
+    if cache[size] then return cache[size] end
     local ok, f = pcall(love.graphics.newFont, path, size)
-    return ok and f or nil
-end
-
-function Fonts.get(size)
-    if _cache[size] then return _cache[size] end
-    -- Bebas Neue for display sizes; m6x11 pixel font for small labels
-    local f
-    if size >= 11 then
-        f = tryLoad("assets/fonts/Anton-Regular.ttf", size)
-    end
-    if not f then
-        f = tryLoad("assets/fonts/m6x11.ttf", size)
-    end
-    if not f then
-        f = love.graphics.newFont(size)
-    end
-    _cache[size] = f
+    if not ok then f = love.graphics.newFont(size) end
+    f:setFilter("linear", "linear")
+    cache[size] = f
     return f
 end
 
-function Fonts.with(size, fn)
+function Fonts.get(size)  return load(_display, DISPLAY, size) end
+function Fonts.body(size) return load(_body, BODY, size) end
+
+local function with(font, fn)
     local prev = love.graphics.getFont()
-    love.graphics.setFont(Fonts.get(size))
+    love.graphics.setFont(font)
     fn()
     love.graphics.setFont(prev)
 end
+
+function Fonts.with(size, fn)     with(Fonts.get(size), fn) end
+function Fonts.withBody(size, fn) with(Fonts.body(size), fn) end
 
 return Fonts

@@ -1,27 +1,37 @@
 local flux          = require("lib.flux")
-local moonshine     = require("lib.moonshine")
-local Theme         = require("ui.theme")
-local Fonts         = require("ui.fonts")
+local Draw          = require("ui.kit.draw")
 local Pitch         = require("ui.pitch")
 local Hand          = require("ui.hand")
-local HUD           = require("ui.hud")
 local Card          = require("ui.card")
-local CardDetail    = require("ui.card_detail")
-local CombatOverlay      = require("ui.combat_overlay")
-local TrapActivOverlay   = require("ui.trap_activation_overlay")
-local CoverPrompt        = require("ui.cover_prompt")
+local CombatOverlay      = require("ui.overlay.combat")
+local CombatFx           = require("ui.overlay.combatfx")
+local TrapActivOverlay   = require("ui.overlay.trapactivation")
+local Prompts            = require("ui.overlay.prompts")
+local PromptPanel        = require("ui.overlay.promptpanel")
+local Reveal             = require("ui.overlay.reveal")
+local MatchEnd           = require("ui.overlay.matchend")
 local AI            = require("ai.opponent")
 local Audio         = require("ui.audio")
 local Character     = require("ui.character")
 local C             = require("engine.constants")
-local PauseMenu     = require("ui.pause_menu")
-local CardLibrary   = require("ui.card_library")
+local PauseMenu     = require("ui.menu.pause")
+local CardLibrary   = require("ui.menu.library")
+local Layout        = require("ui.match.layout")
+local TopBar        = require("ui.match.topbar")
+local BottomBar     = require("ui.match.bottombar")
+local Toasts        = require("ui.match.toasts")
+local Banner        = require("ui.match.banner")
+local Hover         = require("ui.match.hover")
+local Zoom          = require("ui.match.zoom")
+local Tween         = require("ui.kit.tween")
+local Confetti      = require("ui.match.confetti")
+local DebugLog      = require("ui.match.debuglog")
 
 local Match = {}
 
 local store            = nil
 local pitchHitboxes    = {}
-local handHitboxes     = {}
+local handHit          = { cards = {}, order = {}, defs = {} }   -- from Hand.draw
 
 local selectedHandCard     = nil
 local selectedAttackerSlot = nil
@@ -35,20 +45,14 @@ local substitutionFreedSlot = nil
 local scoutPending = false
 local scoutReveal  = nil  -- { card = pitchedCard, timer = N } while overlay is shown
 
-local hoveredCard    = nil
-local hoveredCardPos = nil
-local handMouseX     = nil   -- current mouse X for dock magnification
+local mouseX, mouseY         = -1, -1    -- last mouse position (buttons, zoom)
+local handMouseX, handMouseY = nil, nil  -- mouse for dock magnification (frozen during combat)
 local aiDifficulty   = "medium"
 
 local pauseOpen   = false
 local libraryOpen = false
-
--- Selected pitched card for left panel detail
-local selectedPitchedCard = nil
-
--- Goal/LP flash
-local lpFlash  = { alpha = 0 }
-local lpDealer = nil
+local lastLogLen  = 0
+local aiHandDebug = false
 
 -- Combat overlay queue
 local combatQueue  = {}
@@ -57,35 +61,34 @@ local activeCombat = nil
 -- Trap activation overlay queue
 local trapActivQueue  = {}
 local activeTrapActiv = nil
-local trapActivAnim   = { slideY = 0, stampAlpha = 0, glowAlpha = 0, textAlpha = 0 }
+local trapActivT      = 0   -- seconds since the active trap overlay opened (ui/overlay/trapfx.lua)
 
 -- Cover / trap prompt hitboxes
 local coverHitboxes = {}
 local trapHitboxes  = {}
+local promptAnim    = { y = 0 }   -- bottom prompt panel slide offset
+local promptWindow  = nil         -- the cover/trap window the panel is showing (slide-in trigger)
 
 -- Flux animations
 local flyingCards = {}
-local overlayAnim = {
-    panelY      = 0,    -- panel vertical offset (starts off-screen, tweens to 0)
-    atkOffX     = 0,    -- attacker card horizontal offset (slides from left)
-    defOffX     = 0,    -- defender card horizontal offset (slides from right)
-    clashX      = 0,    -- clash intensity (0=calm, 1=full clash)
-    resultAlpha = 0,    -- result text/pill fade-in
-    shakeX      = 0,    -- horizontal shake at clash moment
-}
-local shimmers    = {}
+local drawAnims   = {}   -- card-draw flying animations
+local pitchAnims  = { hidden = {}, pop = {} }   -- summon squash-pop state, read by Pitch.draw
+local combatT     = 0   -- seconds since the active combat overlay opened (ui/overlay/combatfx.lua)
 
--- Moonshine effects
-local fxGoal   = nil
-local fxCombat = nil
+-- Toasts (log events) and ribbon banner (Match.flash)
+local toasts = Toasts.new()
+local banner = Banner.new()
 
--- Particles
-local goalParticles = nil
+-- Half-time ribbon (full width) and the match-end screen
+local HALF_BANNER = { y = 318, w = 1400, h = 84, size = 46, hold = 2.4, slide = 1500 }
+local halfBanner  = Banner.new(HALF_BANNER)
+local pendingHalf = nil   -- half-time text waiting for the overlays to clear
+local winT        = nil   -- seconds since the match-end screen appeared
 
--- Transient error/info flash message
-local flashMsg      = nil
-local flashTimer    = 0
-local FLASH_DURATION = 2.5
+-- Card zoom (hover any card ~0.3s)
+local hover    = Hover.new()
+local zoomKey  = nil
+local zoomAnim = { scale = 1 }
 
 -- Debug log panel
 local debugLogOpen   = false
@@ -109,45 +112,39 @@ function Match.enter(matchStore, difficulty)
     substitutionFreedSlot = nil
     scoutPending        = false
     scoutReveal         = nil
-    hoveredCard         = nil
-    selectedPitchedCard = nil
-    lpFlash.alpha       = 0
     combatQueue         = {}
     activeCombat        = nil
+    combatT             = 0
     trapActivQueue      = {}
     activeTrapActiv     = nil
+    trapActivT          = 0
     coverHitboxes       = {}
     flyingCards         = {}
+    drawAnims           = {}
+    pitchAnims          = { hidden = {}, pop = {} }
     trapHitboxes        = {}
+    promptAnim          = { y = 0 }
+    promptWindow        = nil
+    handHit             = { cards = {}, order = {}, defs = {} }
     aiPlan              = nil
     aiActionIndex       = 0
     aiTimer             = 0
-    shimmers            = {}
-    flashMsg            = nil
-    flashTimer          = 0
     debugLogOpen        = false
     debugLogScroll      = 0
+    lastLogLen          = 0
+    mouseX, mouseY      = -1, -1
+    handMouseX, handMouseY = nil, nil
+    toasts              = Toasts.new()
+    banner              = Banner.new()
+    halfBanner          = Banner.new(HALF_BANNER)
+    pendingHalf         = nil
+    winT                = nil
+    Confetti.reset()
+    hover               = Hover.new()
+    zoomKey             = nil
     Character.reset()
-
-    if not fxGoal then
-        fxGoal   = moonshine(moonshine.effects.glow)
-        fxCombat = moonshine(moonshine.effects.glow)
-    end
-    if not goalParticles then
-        local img = love.graphics.newCanvas(4, 4)
-        love.graphics.setCanvas(img)
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.rectangle("fill", 0, 0, 4, 4)
-        love.graphics.setCanvas()
-        goalParticles = love.graphics.newParticleSystem(img, 120)
-        goalParticles:setParticleLifetime(0.6, 1.4)
-        goalParticles:setEmissionRate(0)
-        goalParticles:setSpeed(80, 220)
-        goalParticles:setLinearDamping(1.0)
-        goalParticles:setSpread(math.pi * 2)
-        goalParticles:setSizes(1.0, 0.4)
-        goalParticles:setColors(1, 0.84, 0, 1,  1, 1, 1, 0.8,  1, 1, 1, 0)
-    end
+    TopBar.reset(store.match)
+    BottomBar.reset()
 end
 
 -- ── Update ────────────────────────────────────────────────────────────────────
@@ -156,64 +153,105 @@ function Match.update(dt)
     if not store or not store.match then return end
     local match = store.match
 
-    if goalParticles then goalParticles:update(dt) end
+    if libraryOpen then CardLibrary.update(dt, mouseX, mouseY) end
+    if pauseOpen and not libraryOpen then PauseMenu.update(dt, mouseX, mouseY) end
+
+    Confetti.update(dt)
     Character.update(dt, match.players.player.lp)
+    toasts:update(dt)
+    banner:update(dt)
+    -- Capped step, like the overlays: a stall must not skip the slide-in.
+    halfBanner:update(math.min(dt, 1 / 30))
+    TopBar.update(dt, match, mouseX, mouseY)
+    BottomBar.update(dt, match, mouseX, mouseY)
+
+    local hKey, hPayload = Match.hoverTarget(match)
+    if hover:update(dt, hKey, hPayload) then
+        if zoomKey ~= hKey then
+            zoomKey = hKey
+            zoomAnim.scale = 0.85
+            flux.to(zoomAnim, 0.18, { scale = 1 }):ease("backout")
+        end
+    else
+        zoomKey = nil
+    end
+
+    -- Scan new log entries for notable events
+    local log = match.log or {}
+    for i = lastLogLen + 1, #log do
+        local evt = log[i]
+        local p   = evt.payload or {}
+        if evt.type == "midfield_control" and p.player == "player" then
+            Match.flash("MIDFIELD CONTROL +1 SUMMON", "good")
+        elseif evt.type == "card_drawn" then
+            Match.spawnDrawAnim(p.player == "player")
+        elseif evt.type == "half_end" and not match.winner then
+            pendingHalf = MatchEnd.halfText(p.half, match.players.player.halvesWon or 0,
+                match.players.opponent.halvesWon or 0)
+        end
+        local text, kind = Toasts.describe(evt)
+        if text then toasts:push(text, kind) end
+    end
+    lastLogLen = #log
     if scoutReveal then
-        scoutReveal.timer = scoutReveal.timer - dt
+        -- Capped step, like combatT/trapActivT: a stall (e.g. a snapshot capture) must
+        -- not skip the flip or empty the timer in one frame.
+        local step = math.min(dt, 1 / 30)
+        scoutReveal.t     = (scoutReveal.t or 0) + step
+        scoutReveal.timer = scoutReveal.timer - step
         if scoutReveal.timer <= 0 then scoutReveal = nil end
     end
-    if flashTimer > 0 then
-        flashTimer = flashTimer - dt
-        if flashTimer <= 0 then flashMsg = nil end
+
+    -- Bottom prompt panel slides up whenever a new cover/trap window opens for the player
+    local win = (store.coverWindow and match.activePlayer == "opponent" and store.coverWindow) or store.trapWindow
+    if win ~= promptWindow then
+        promptWindow = win
+        if win then
+            promptAnim.y = PromptPanel.SLIDE
+            flux.to(promptAnim, 0.32, { y = 0 }):ease("backout")
+        end
     end
 
+    -- Combat overlay: dequeue, then advance its timeline (ui/overlay/combatfx.lua).
     if not activeCombat and #combatQueue > 0 then
         activeCombat = table.remove(combatQueue, 1)
-
-        -- Phase 1: panel + cards slide in (0 → 0.35s)
-        local H = love.graphics.getHeight()
-        overlayAnim.panelY      = H * 0.55
-        overlayAnim.atkOffX     = -380
-        overlayAnim.defOffX     = 380
-        overlayAnim.clashX      = 0
-        overlayAnim.resultAlpha = 0
-        overlayAnim.shakeX      = 0
-
-        flux.to(overlayAnim, 0.32, { panelY = 0 }):ease("backout")
-        flux.to(overlayAnim, 0.32, { atkOffX = 0 }):ease("quadout")
-        flux.to(overlayAnim, 0.32, { defOffX = 0 }):ease("quadout")
-
-        -- Phase 2: clash (0.38s → 0.62s) — cards surge toward center, screen shakes
-        flux.to(overlayAnim, 0.22, { clashX = 1 }):delay(0.38):ease("quadout")
-            :oncomplete(function()
-                -- screen shake on clash
-                overlayAnim.shakeX = 7
-                flux.to(overlayAnim, 0.28, { shakeX = 0 }):ease("elasticout")
-                -- LP damage flash
-                if activeCombat and activeCombat.damage and activeCombat.damage > 0 then
-                    Match.onLPDamage(match.activePlayer)
-                end
-                -- Phase 3: clash recedes, result fades in (0.62s → 1.0s)
-                flux.to(overlayAnim, 0.18, { clashX = 0.15 }):ease("quadin")
-                flux.to(overlayAnim, 0.38, { resultAlpha = 1 }):ease("quadout")
-            end)
+        combatT = 0
+    end
+    if activeCombat then
+        local prevT = combatT
+        -- Capped step: a first-draw hitch (fonts, canvases) must not skip the animation.
+        combatT = combatT + math.min(dt, 1 / 30)
+        -- LP damage: banner + confetti when the cards clash
+        if CombatFx.crossed(prevT, combatT, CombatFx.CLASH)
+           and activeCombat.damage and activeCombat.damage > 0 then
+            Match.onLPDamage(match.activePlayer, activeCombat.outcome == "damage")
+        end
     end
 
     -- Dequeue a trap activation overlay (only when no combat overlay is blocking)
     if not activeCombat and not activeTrapActiv and #trapActivQueue > 0 then
         activeTrapActiv = table.remove(trapActivQueue, 1)
+        trapActivT = 0
         if activeTrapActiv.activator == "opponent" then
             Character.setState("worried")
         end
-        local H = love.graphics.getHeight()
-        trapActivAnim.slideY     = H * 0.38
-        trapActivAnim.stampAlpha = 0
-        trapActivAnim.glowAlpha  = 0
-        trapActivAnim.textAlpha  = 0
-        flux.to(trapActivAnim, 0.30, { slideY = 0 }):ease("backout")
-        flux.to(trapActivAnim, 0.28, { glowAlpha = 1 }):ease("quadout")
-        flux.to(trapActivAnim, 0.28, { stampAlpha = 1 }):delay(0.26):ease("backout")
-        flux.to(trapActivAnim, 0.28, { textAlpha = 1 }):delay(0.50):ease("quadout")
+    end
+    -- Capped step, like combatT: a first-draw hitch must not skip the animation.
+    if activeTrapActiv and not activeCombat then trapActivT = trapActivT + math.min(dt, 1 / 30) end
+
+    -- Half-time ribbon and match-end screen wait until the overlays are dismissed
+    local overlaysClear = not activeCombat and not activeTrapActiv and #combatQueue == 0 and #trapActivQueue == 0
+    if pendingHalf and overlaysClear then
+        halfBanner:show(pendingHalf, "half")
+        pendingHalf = nil
+    end
+    if match.winner and overlaysClear then
+        local prevWin = winT
+        -- Capped step, like the overlays: a stall must not skip the pop-in.
+        winT = (winT or 0) + math.min(dt, 1 / 30)
+        if match.winner == "player" and (not prevWin or math.floor(prevWin / 1.4) ~= math.floor(winT / 1.4)) then
+            Confetti.burst(math.random(260, 1020), 180, 90)
+        end
     end
 
     if activeCombat then return end
@@ -282,11 +320,9 @@ end
 function Match.draw()
     if not store or not store.match then return end
     local match = store.match
+    local W, H = love.graphics.getWidth(), love.graphics.getHeight()
 
-    love.graphics.setColor(0.051, 0.008, 0.008, 1)  -- #0d0202
-    love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
-
-    Match.drawTopBar(match)
+    Draw.background(W, H)
 
     local interactionState = {
         selectedHandCard     = selectedHandCard,
@@ -295,391 +331,149 @@ function Match.draw()
         attackTargetSlots    = Match.getAttackTargetSlots(match),
         phase                = match.phase,
     }
-    pitchHitboxes = Pitch.draw(match, interactionState)
-    love.graphics.setScissor()
+    pitchHitboxes = Pitch.draw(match, interactionState, pitchAnims)
+    TopBar.draw(match)
+    BottomBar.draw(match, { mode = selectedMode, toasts = toasts, hint = Match.hintText(match) })
+    -- The prompt panel / match-end screen covers the hand: no dock magnification poking out.
+    local hmx, hmy = handMouseX, handMouseY
+    if promptWindow or winT then hmx, hmy = nil, nil end
+    handHit = Hand.draw(match.players.player.hand,
+        selectedHandCard and selectedHandCard.id or nil, hmx, hmy)
 
-    handHitboxes = Hand.draw(
-        match.players.player.hand,
-        selectedHandCard and selectedHandCard.id or nil,
-        handMouseX
-    )
+    -- Confetti (drawn above the match-end screen instead, once it is up)
+    if not winT then Confetti.draw() end
 
-    -- Left panel
-    local detailCard    = selectedHandCard
-    local detailPitched = nil
-    local detailPitch   = nil
-    if not detailCard and selectedPitchedCard then
-        detailCard    = selectedPitchedCard.definition
-        detailPitched = selectedPitchedCard
-        -- Find which player owns this pitched card to pass their pitch
-        for _, owner in ipairs({ "player", "opponent" }) do
-            local p = match.players[owner].pitch
-            if p.keeper == selectedPitchedCard then detailPitch = p; break end
-            if p.midfielder == selectedPitchedCard then detailPitch = p; break end
-            for i = 1, C.PITCH.MAX_DEFENDERS do
-                if p.defenders[i] == selectedPitchedCard then detailPitch = p; break end
-            end
-            for i = 1, C.PITCH.MAX_STRIKERS do
-                if p.strikers[i] == selectedPitchedCard then detailPitch = p; break end
-            end
-            if detailPitch then break end
-        end
-    end
-    CardDetail.draw(detailCard, detailPitched, detailPitch)
-
-    -- Right panel
-    HUD.draw(match)
-    HUD.drawModeButton(selectedMode, love.graphics.getHeight())
-
-    -- Character drawn after all panels so it appears on top
-    Character.draw(love.graphics.getWidth(), love.graphics.getHeight())
-
-    Match.drawHint(match)
-
-    -- Shimmer effects
-    love.graphics.setScissor()
-    for _, sh in ipairs(shimmers) do
-        local sw = 12
-        love.graphics.setScissor(sh.x, sh.y, sh.w, sh.h)
-        love.graphics.setColor(1, 1, 1, 0.18)
-        love.graphics.polygon("fill",
-            sh.x + sh.shimX, sh.y,
-            sh.x + sh.shimX + sw, sh.y,
-            sh.x + sh.shimX + sw*2, sh.y + sh.h,
-            sh.x + sh.shimX + sw, sh.y + sh.h)
-        love.graphics.setScissor()
+    -- Card-draw animations (card back from the deck pile; scaled, never resized)
+    local dk = Layout.bottom.deck
+    for _, da in ipairs(drawAnims) do
+        love.graphics.push()
+        love.graphics.translate(da.x + dk.w / 2, da.y + dk.h / 2)
+        love.graphics.scale(da.s, da.s)
+        Card.drawBack(-dk.w / 2, -dk.h / 2, dk.w, dk.h)
+        love.graphics.pop()
     end
 
-    -- Particles
-    if goalParticles then
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(goalParticles)
-    end
-
-    -- Glow rings for attack
-    if match.phase == "attack" and not activeCombat and not store.coverWindow then
-        local t = love.timer.getTime()
-        for _, hbox in ipairs(pitchHitboxes) do
-            local isAtk = selectedAttackerSlot
-                and hbox.slotType == selectedAttackerSlot.type
-                and hbox.slotIndex == selectedAttackerSlot.index
-                and hbox.owner == "player"
-            local isTgt = false
-            for _, ts in ipairs(Match.getAttackTargetSlots(match)) do
-                if ts.slotType == hbox.slotType and ts.slotIndex == hbox.slotIndex
-                   and ts.owner == hbox.owner then isTgt = true; break end
-            end
-            if isAtk then
-                local p = math.sin(t * 7) * 0.25 + 0.75
-                love.graphics.setLineWidth(2)
-                for r = 1, 3 do
-                    love.graphics.setColor(1, 0.9, 0.1, p * (0.55 - r*0.12))
-                    love.graphics.rectangle("line", hbox.x-r*3, hbox.y-r*3, hbox.w+r*6, hbox.h+r*6, Theme.slot.radius+r*2)
-                end
-                love.graphics.setLineWidth(1)
-            elseif isTgt and selectedAttackerSlot then
-                local p = math.sin(t * 5 + 1) * 0.25 + 0.75
-                love.graphics.setLineWidth(2)
-                for r = 1, 3 do
-                    love.graphics.setColor(1, 0.2, 0.1, p * (0.55 - r*0.12))
-                    love.graphics.rectangle("line", hbox.x-r*3, hbox.y-r*3, hbox.w+r*6, hbox.h+r*6, Theme.slot.radius+r*2)
-                end
-                love.graphics.setLineWidth(1)
-            end
-        end
-    end
-
-    -- Flying cards
+    -- Flying cards (summon)
     for _, fc in ipairs(flyingCards) do
         Card.drawPitched({
-            definition = fc.cardDef,
-            exhausted  = false,
-            mode       = fc.mode or "attack",
-        }, fc.x, fc.y, {})
+            definition = fc.cardDef, exhausted = false, mode = fc.mode or "attack",
+            slotType   = (fc.cardDef.type == "trap") and "trap" or fc.cardDef.type,
+        }, fc.x, fc.y, { w = fc.w, h = fc.h })
     end
 
-    -- Tooltip
-    if hoveredCard and hoveredCardPos and not activeCombat then
-        Card.drawTooltip(hoveredCard, hoveredCardPos.x, hoveredCardPos.y - 140)
-    end
-
-    -- LP damage flash
-    if lpFlash.alpha > 0 then
-        local W, H = love.graphics.getWidth(), love.graphics.getHeight()
-        local r = lpDealer == "player" and 0.05 or 0.85
-        local g = lpDealer == "player" and 0.85 or 0.05
-        local b = 0.05
-        local drawFlash = function()
-            love.graphics.setColor(r, g, b, lpFlash.alpha * 0.28)
-            love.graphics.rectangle("fill", 0, 0, W, H)
-            Fonts.with(33, function()
-                love.graphics.setColor(1, 1, 1, lpFlash.alpha)
-                love.graphics.printf(
-                    lpDealer == "player" and "LP DAMAGE DEALT!" or "LP DAMAGE TAKEN!",
-                    0, H / 2 - 20, W, "center")
-            end)
+    -- Card zoom
+    if zoomKey and hover.payload then
+        local p = hover.payload
+        if p.above then
+            Zoom.drawInfoAbove(p.cardDef, p.src)
+        else
+            Zoom.draw({ cardDef = p.cardDef, pitched = p.pitched, pitch = p.pitch, src = p.src, scale = zoomAnim.scale })
         end
-        if fxGoal then fxGoal(drawFlash) else drawFlash() end
     end
 
-    -- Combat overlay — drawn directly, no moonshine wrapper (backdrop must cover full screen)
+    -- Flash banner
+    banner:draw()
+    halfBanner:draw()
+
+    -- Combat overlay — drawn directly (backdrop must cover full screen)
     if activeCombat then
-        CombatOverlay.draw(activeCombat, overlayAnim)
+        CombatOverlay.draw(activeCombat, combatT)
     end
 
     -- Trap activation overlay (cinematic reveal, shown after combat if both pending)
     if activeTrapActiv then
-        TrapActivOverlay.draw(activeTrapActiv, trapActivAnim)
+        TrapActivOverlay.draw(activeTrapActiv, trapActivT)
     end
 
     -- Scout Report reveal overlay
     if scoutReveal then
-        Match.drawScoutReveal(scoutReveal.card)
+        Reveal.draw(scoutReveal.card, scoutReveal.t or 0, scoutReveal.timer)
     end
 
     -- Cover prompt (player defending against opponent attack)
     if store.coverWindow and not activeCombat and match.activePlayer == "opponent" then
-        CoverPrompt.draw(store.coverWindow)
-        coverHitboxes = CoverPrompt.getHitboxes(store.coverWindow)
+        coverHitboxes = Prompts.drawCover(store.coverWindow, promptAnim.y, mouseX, mouseY)
     else
         coverHitboxes = {}
     end
 
     -- Trap window (player decides whether to activate their set trap)
     if store.trapWindow and not activeCombat then
-        trapHitboxes = Match.drawTrapWindow(store.trapWindow)
+        trapHitboxes = Prompts.drawTrapWindow(store.trapWindow, promptAnim.y, mouseX, mouseY)
     else
         trapHitboxes = {}
     end
 
-    -- AI hand debug
-    if HUD.debugAIHand then Match.drawAIHandDebug(match) end
+    -- AI hand debug (TAB)
+    if aiHandDebug then DebugLog.drawAIHand(match) end
 
-    -- Debug log panel (overlay, drawn last so it's on top)
-    if debugLogOpen then Match.drawDebugLog(match) end
+    -- Full match log (log button / L)
+    if debugLogOpen then debugLogScroll = DebugLog.draw(match, debugLogScroll) end
 
-    if match.winner then Match.drawWinScreen(match) end
+    if winT then
+        MatchEnd.draw(match, winT, mouseX, mouseY)
+        Confetti.draw()
+    end
 
     -- Pause menu / card library (always on top of everything)
     if libraryOpen then CardLibrary.draw() end
     if pauseOpen and not libraryOpen then PauseMenu.draw() end
 end
 
-function Match.drawTopBar(match)
-    local W  = love.graphics.getWidth()
-    local bH = Theme.layout.topBarH
-
-    -- Background: deep dark with subtle gradient
-    love.graphics.setColor(0.07, 0.05, 0.10, 1)
-    love.graphics.rectangle("fill", 0, 0, W, bH)
-    love.graphics.setColor(0.10, 0.07, 0.15, 1)
-    love.graphics.rectangle("fill", 0, 0, W, math.floor(bH / 2))
-
-    -- Bottom separator glow
-    local col = Theme.phases[match.phase] or Theme.hud.text
-    love.graphics.setColor(col[1], col[2], col[3], 0.30)
-    love.graphics.setLineWidth(3)
-    love.graphics.line(0, bH, W, bH)
-    love.graphics.setColor(col[1], col[2], col[3], 0.70)
-    love.graphics.setLineWidth(1)
-    love.graphics.line(0, bH - 1, W, bH - 1)
-    love.graphics.setLineWidth(1)
-
-    -- Phase pill (centered)
-    local halfLabel = "HALF " .. tostring(match.half):upper()
-    if match.half == "extra" then halfLabel = "EXTRA TIME" end
-    local phaseStr = match.phase:upper()
-    local label    = halfLabel .. "   T" .. match.turn .. "   " .. phaseStr
-
-    love.graphics.setColor(col[1], col[2], col[3], 0.12)
-    local pillW = 420
-    local pillX = (W - pillW) / 2
-    love.graphics.rectangle("fill", pillX, 4, pillW, bH - 8, 4)
-    love.graphics.setColor(col[1], col[2], col[3], 0.40)
-    love.graphics.setLineWidth(1)
-    love.graphics.rectangle("line", pillX, 4, pillW, bH - 8, 4)
-
-    Fonts.with(11, function()
-        love.graphics.setColor(col)
-        love.graphics.printf(label, 0, bH / 2 - 6, W, "center")
-    end)
+-- Key + payload for the card under the mouse (nil when nothing zoomable).
+-- Opponent face-down cards and traps are never zoomable (hidden information).
+function Match.hoverTarget(match)
+    if activeCombat or activeTrapActiv or scoutReveal or pauseOpen or libraryOpen or debugLogOpen
+       or match.winner or store.coverWindow or store.trapWindow then
+        return nil
+    end
+    local def, i, r = Hand.hit(handHit, mouseX, mouseY)
+    if def then
+        return "hand:" .. i .. ":" .. tostring(def.id), { cardDef = def, src = r, above = true }
+    end
+    for k = #pitchHitboxes, 1, -1 do
+        local s = pitchHitboxes[k]
+        if Match.inRect(mouseX, mouseY, s) then
+            local pitch = match.players[s.owner].pitch
+            local card
+            if s.slotType == "trap" then card = pitch.traps[s.slotIndex]
+            else card = Match.getCardInSlot(pitch, s) end
+            if card and not (s.owner == "opponent" and card.mode == "defense") then
+                return Pitch.slotKey(s.owner, s.slotType, s.slotIndex) .. ":" .. tostring(card.definition.id),
+                    { cardDef = card.definition, pitched = card, pitch = pitch, src = s }
+            end
+            return nil
+        end
+    end
+    return nil
 end
 
-function Match.drawHint(match)
-    if activeCombat then return end
-    if store and store.coverWindow then return end
-    local H = love.graphics.getHeight()
-    local hint = ""
-    if match.activePlayer == "opponent" then
-        hint = "Opponent is thinking..."
-    elseif match.phase == "summon" then
+-- One-line instruction shown between the pitch and the hand.
+function Match.hintText(match)
+    if activeCombat or (store and (store.coverWindow or store.trapWindow)) then return "" end
+    if match.activePlayer == "opponent" then return "Opponent is thinking..." end
+    if match.phase == "summon" then
         if selectedHandCard and selectedHandCard.ability == "SUBSTITUTION" then
-            hint = "SUBSTITUTION: click a pitched card to return it to hand"
+            return "SUBSTITUTION: click a pitched card to return it to hand"
         elseif substitutionFreedSlot then
-            hint = "SUBSTITUTION: select a card and place it in the freed slot (free)"
+            return "SUBSTITUTION: select a card and place it in the freed slot (free)"
         elseif selectedHandCard and selectedHandCard.type == "trap" then
-            hint = "Click a TRAP slot (purple, right side) to set face-down  |  ESC to cancel"
+            return "Click a TRAP slot by your goal to set it face-down  ·  ESC to cancel"
         elseif selectedHandCard then
-            hint = "Mode: " .. selectedMode:upper() .. "  |  Click empty slot to place  |  ESC to cancel"
-        else
-            hint = "Select card  |  Toggle mode with MODE button  |  START ATTACK or END TURN"
+            return "Mode: " .. selectedMode:upper() .. "  ·  Click an empty slot to place  ·  ESC to cancel"
         end
+        return "Select a card  ·  M toggles ATTACK / DEFENSE  ·  START ATTACK or END TURN"
     elseif match.phase == "attack" then
         if scoutPending then
-            hint = "SCOUT REPORT: click an opponent face-down card to reveal  |  ESC to cancel"
+            return "SCOUT REPORT: click an opponent face-down card to reveal  ·  ESC to cancel"
         elseif selectedAttackerSlot then
-            hint = "Click opponent slot to attack  |  ESC to cancel"
+            return "Click an opponent slot to attack  ·  ESC to cancel"
         elseif not match.strategyPlayedThisTurn then
-            hint = "Click your card to attack  |  Click STRATEGY card in hand to play  |  END TURN"
-        else
-            hint = "Click your card (attack mode) to select attacker  |  END TURN when done"
+            return "Click your card to attack  ·  Click a STRATEGY card to play it  ·  END TURN"
         end
+        return "Click your card (attack mode) to select an attacker  ·  END TURN when done"
     end
-    Fonts.with(9, function()
-        love.graphics.setColor(0.35, 0.35, 0.45, 1)
-        love.graphics.printf(hint, Theme.layout.pitchX, H - Theme.layout.handH - 16, Theme.layout.pitchW, "center")
-    end)
-
-    -- Flash error/info message
-    if flashMsg and flashTimer > 0 then
-        local alpha = math.min(1, flashTimer / 0.4) * math.min(1, flashTimer)
-        Fonts.with(11, function()
-            love.graphics.setColor(1, 0.4, 0.3, alpha)
-            love.graphics.printf(flashMsg, 0, H - Theme.layout.handH - 36, love.graphics.getWidth(), "center")
-        end)
-    end
-end
-
-function Match.drawWinScreen(match)
-    local W, H = love.graphics.getWidth(), love.graphics.getHeight()
-    love.graphics.setColor(0, 0, 0, 0.88)
-    love.graphics.rectangle("fill", 0, 0, W, H)
-
-    local won = match.winner == "player"
-    local mainCol = won and { 0.15, 1.0, 0.50, 1 } or { 1.0, 0.25, 0.25, 1 }
-
-    -- Result glow
-    love.graphics.setColor(mainCol[1], mainCol[2], mainCol[3], 0.10)
-    love.graphics.rectangle("fill", W/2 - 260, H * 0.22, 520, 80, 8)
-    love.graphics.setColor(mainCol[1], mainCol[2], mainCol[3], 0.40)
-    love.graphics.setLineWidth(2)
-    love.graphics.rectangle("line", W/2 - 260, H * 0.22, 520, 80, 8)
-    love.graphics.setLineWidth(1)
-
-    Fonts.with(44, function()
-        love.graphics.setColor(mainCol)
-        love.graphics.printf(won and "VICTORY" or "DEFEAT", 0, H * 0.25, W, "center")
-    end)
-
-    local p, o = match.players.player, match.players.opponent
-    Fonts.with(16, function()
-        love.graphics.setColor(0.80, 0.80, 0.85, 1)
-        love.graphics.printf(
-            "Halves: You " .. p.halvesWon .. "  —  Opp " .. o.halvesWon,
-            0, H * 0.43, W, "center")
-        love.graphics.printf(
-            "LP Damage: You " .. p.totalDamageDealt .. "  —  Opp " .. o.totalDamageDealt,
-            0, H * 0.52, W, "center")
-    end)
-    Fonts.with(11, function()
-        love.graphics.setColor(0.50, 0.50, 0.58, 1)
-        love.graphics.printf("R to restart  |  ESC for menu", 0, H * 0.65, W, "center")
-    end)
-end
-
--- ── Trap Window ──────────────────────────────────────────────────────────────
-
-function Match.drawTrapWindow(tw)
-    local W, H = love.graphics.getWidth(), love.graphics.getHeight()
-    local panW = 500
-    local rows = #tw.traps
-    local panH = 80 + rows * 58 + 50
-    local panX = (W - panW) / 2
-    local panY = H / 2 - panH / 2
-
-    -- Backdrop
-    love.graphics.setColor(0, 0, 0, 0.70)
-    love.graphics.rectangle("fill", 0, 0, W, H)
-
-    -- Panel
-    love.graphics.setColor(0.07, 0.02, 0.14, 1)
-    love.graphics.rectangle("fill", panX, panY, panW, panH, 10)
-    love.graphics.setColor(0.60, 0.25, 1.00, 0.80)
-    love.graphics.setLineWidth(2)
-    love.graphics.rectangle("line", panX, panY, panW, panH, 10)
-    love.graphics.setLineWidth(1)
-
-    local label = tw.type == "pre_attack"          and "TRAP WINDOW  ·  STRIKER ATTACKS"
-               or tw.type == "post_destroy"         and "TRAP WINDOW  ·  YOUR CARD DESTROYED"
-               or tw.type == "post_damage"          and "TRAP WINDOW  ·  OPPONENT SCORED"
-               or tw.type == "post_last_defender"   and "TRAP WINDOW  ·  LAST DEFENDER"
-               or tw.type == "counter_offside"      and "COUNTER TRAP  ·  OFFSIDE INCOMING"
-               or tw.type == "counter_red_card"     and "COUNTER TRAP  ·  RED CARD INCOMING"
-               or "TRAP WINDOW"
-    Fonts.with(14, function()
-        love.graphics.setColor(0.78, 0.50, 1.00, 1)
-        love.graphics.printf(label, panX, panY + 12, panW, "center")
-    end)
-
-    -- Attack summary
-    local atkName = tw.attackerSnap and tw.attackerSnap.name or "?"
-    local defName = tw.defenderSnap and tw.defenderSnap.name or "?"
-    Fonts.with(9, function()
-        love.graphics.setColor(0.75, 0.75, 0.80, 1)
-        love.graphics.printf(atkName .. "  →  " .. defName, panX + 10, panY + 34, panW - 20, "center")
-    end)
-
-    local hitboxes = {}
-    local y = panY + 58
-
-    for i, entry in ipairs(tw.traps) do
-        local def = entry.card.definition
-
-        -- Trap row
-        love.graphics.setColor(0.40, 0.12, 0.65, 1)
-        love.graphics.rectangle("fill", panX + 12, y, panW - 24, 48, 6)
-        love.graphics.setColor(0.68, 0.38, 1.00, 1)
-        love.graphics.setLineWidth(1)
-        love.graphics.rectangle("line", panX + 12, y, panW - 24, 48, 6)
-        love.graphics.setLineWidth(1)
-
-        Fonts.with(11, function()
-            love.graphics.setColor(1, 0.92, 1, 1)
-            love.graphics.print(def.name, panX + 20, y + 6)
-        end)
-        Fonts.with(8, function()
-            love.graphics.setColor(0.78, 0.65, 0.85, 1)
-            love.graphics.printf(def.abilityText and def.abilityText:sub(1, 60) or "", panX + 20, y + 22, panW - 120, "left")
-        end)
-
-        -- Activate button
-        local btnX = panX + panW - 100
-        local btnY = y + 10
-        love.graphics.setColor(0.65, 0.15, 0.90, 1)
-        love.graphics.rectangle("fill", btnX, btnY, 82, 28, 5)
-        Fonts.with(9, function()
-            love.graphics.setColor(1, 1, 1, 1)
-            love.graphics.printf("ACTIVATE", btnX, btnY + 8, 82, "center")
-        end)
-        table.insert(hitboxes, { type="activate", trapIndex=i, x=btnX, y=btnY, w=82, h=28 })
-
-        y = y + 58
-    end
-
-    -- Pass button
-    local passX = panX + panW / 2 - 75
-    love.graphics.setColor(0.22, 0.22, 0.30, 1)
-    love.graphics.rectangle("fill", passX, y + 8, 150, 34, 6)
-    love.graphics.setColor(0.55, 0.55, 0.65, 1)
-    love.graphics.setLineWidth(1)
-    love.graphics.rectangle("line", passX, y + 8, 150, 34, 6)
-    Fonts.with(11, function()
-        love.graphics.setColor(0.70, 0.70, 0.78, 1)
-        love.graphics.printf("PASS", panX, y + 16, panW, "center")
-    end)
-    table.insert(hitboxes, { type="pass", x=passX, y=y+8, w=150, h=34 })
-
-    return hitboxes
+    return ""
 end
 
 -- ── Highlight helpers ────────────────────────────────────────────────────────
@@ -797,6 +591,11 @@ end
 
 -- ── Input ────────────────────────────────────────────────────────────────────
 
+local function openPause()
+    pauseOpen = true
+    PauseMenu.open()
+end
+
 function Match.mousepressed(x, y, button)
     -- Card library takes full input priority
     if libraryOpen then
@@ -815,6 +614,9 @@ function Match.mousepressed(x, y, button)
     end
 
     if button ~= 1 then return end
+
+    -- Match-end screen: PLAY AGAIN / MAIN MENU
+    if winT then return MatchEnd.actionAt(x, y) end
 
     -- Dismiss scout reveal overlay
     if scoutReveal then
@@ -878,78 +680,76 @@ function Match.mousepressed(x, y, button)
 
     local match = store and store.match
     if not match or match.winner then return end
+
+    local btn = Layout.buttonAt(x, y, match.phase)
+    if btn == "pause" then openPause(); return end
+    if btn == "music" then Audio.toggleMute(); return end
+    if btn == "log" then
+        debugLogOpen = not debugLogOpen
+        if debugLogOpen then debugLogScroll = 0 end
+        return
+    end
+
     if match.activePlayer ~= "player" then return end
 
-    local H       = love.graphics.getHeight()
-    local buttons = HUD.getButtonHitboxes(H)
-
-    if Match.inRect(x, y, buttons.endTurn) then
+    if btn == "endTurn" then
         selectedHandCard      = nil
         selectedAttackerSlot  = nil
         substitutionFreedSlot = nil
         store:endTurn()
         return
     end
-    if Match.inRect(x, y, buttons.startAttack) and match.phase == "summon" then
+    if btn == "startAttack" then
         selectedHandCard = nil
         store:startAttackPhase()
         Character.setState("attacking")
         return
     end
-    if Match.inRect(x, y, buttons.modeToggle) then
-        selectedMode = selectedMode == "attack" and "defense" or "attack"
-        return
-    end
-    if Match.inRect(x, y, buttons.muteMusic) then
-        Audio.toggleMute()
-        return
-    end
+    if btn == "modeAttack"  then selectedMode = "attack";  return end
+    if btn == "modeDefense" then selectedMode = "defense"; return end
 
     -- Hand card clicks
     if match.phase == "summon" or match.phase == "attack" then
-        for _, hbox in ipairs(handHitboxes) do
-            if Match.inRect(x, y, hbox) then
-                local card = hbox.cardDef
-
-                -- Strategy card in attack phase
-                if card.type == "strategy" and match.phase == "attack"
-                   and not match.strategyPlayedThisTurn then
-                    -- Scout Report needs target selection before playing
-                    if card.ability == "SCOUT_REPORT" then
-                        scoutPending     = true
-                        selectedHandCard = card
-                        return
-                    end
-                    local result, err = store:playStrategy(card.id)
-                    if result then
-                        Audio.play("card_play_strategy")
-                        while #store.combatQueue > 0 do
-                            table.insert(combatQueue, store:popCombat())
-                        end
-                        while #store.trapActivationQueue > 0 do
-                            table.insert(trapActivQueue, store:popTrapActivation())
-                        end
-                    elseif err then
-                        Match.flash(err)
-                    end
-                    selectedHandCard = nil
+        local card = Hand.hit(handHit, x, y)
+        if card then
+            -- Strategy card in attack phase
+            if card.type == "strategy" and match.phase == "attack"
+               and not match.strategyPlayedThisTurn then
+                -- Scout Report needs target selection before playing
+                if card.ability == "SCOUT_REPORT" then
+                    scoutPending     = true
+                    selectedHandCard = card
                     return
                 end
-
-                -- Substitution in summon phase: special two-step flow
-                if card.ability == "SUBSTITUTION" and match.phase == "summon" then
-                    selectedHandCard = (selectedHandCard and selectedHandCard.id == card.id)
-                        and nil or card
-                    return
+                local result, err = store:playStrategy(card.id)
+                if result then
+                    Audio.play("card_play_strategy")
+                    while #store.combatQueue > 0 do
+                        table.insert(combatQueue, store:popCombat())
+                    end
+                    while #store.trapActivationQueue > 0 do
+                        table.insert(trapActivQueue, store:popTrapActivation())
+                    end
+                elseif err then
+                    Match.flash(err)
                 end
-
-                -- Trap / field card: select for placement
-                if match.phase == "summon" then
-                    selectedHandCard = (selectedHandCard and selectedHandCard.id == card.id)
-                        and nil or card
-                end
+                selectedHandCard = nil
                 return
             end
+
+            -- Substitution in summon phase: special two-step flow
+            if card.ability == "SUBSTITUTION" and match.phase == "summon" then
+                selectedHandCard = (selectedHandCard and selectedHandCard.id == card.id)
+                    and nil or card
+                return
+            end
+
+            -- Trap / field card: select for placement
+            if match.phase == "summon" then
+                selectedHandCard = (selectedHandCard and selectedHandCard.id == card.id)
+                    and nil or card
+            end
+            return
         end
     end
 
@@ -967,7 +767,7 @@ function Match.mousepressed(x, y, button)
                     })
                     if result then
                         Audio.play("card_play_strategy")
-                        scoutReveal = { card = result.revealedCard, timer = 3.5 }
+                        scoutReveal = { card = result.revealedCard, timer = 3.5, t = 0 }
                     elseif err then
                         Match.flash(err)
                     end
@@ -1004,48 +804,48 @@ function Match.mousepressed(x, y, button)
                 end
             end
 
-            -- Summon: place card into slot
+            -- Summon: card flies from the hand, then squash-pops into its slot
             if match.phase == "summon" and selectedHandCard and slot.owner == "player" then
-                do
-                    local srcX, srcY = x - Theme.card.w/2, y - Theme.card.h/2
-                    for _, hb in ipairs(handHitboxes) do
-                        if hb.cardId == selectedHandCard.id then srcX, srcY = hb.x, hb.y; break end
-                    end
-                    local cardDefCopy = selectedHandCard
-                    local mode = (selectedHandCard.type == "trap") and "defense" or selectedMode
+                local r = Hand.rectOf(handHit, selectedHandCard.id)
+                local srcX = r and r.x or (x - slot.w / 2)
+                local srcY = r and r.y or (y - slot.h / 2)
+                local cardDefCopy = selectedHandCard
+                local mode = (selectedHandCard.type == "trap") and "defense" or selectedMode
 
-                    local ok
-                    if substitutionFreedSlot then
-                        -- Free summon for substitution replacement
-                        ok = store:freeSummon(selectedHandCard.id, slot.slotType, slot.slotIndex, mode)
-                        if ok then substitutionFreedSlot = nil end
-                    else
-                        ok = store:summonCard(selectedHandCard.id, slot.slotType, slot.slotIndex, mode)
-                    end
-
-                    if ok then
-                        Audio.play("card_summon")
-                        local fc = { cardDef = cardDefCopy, x = srcX, y = srcY, mode = mode }
-                        flux.to(fc, 0.35, { x=slot.x+Theme.slot.pad, y=slot.y+Theme.slot.pad })
-                            :ease("quadout")
-                            :oncomplete(function()
-                                for ii, c in ipairs(flyingCards) do
-                                    if c == fc then table.remove(flyingCards, ii); break end
-                                end
-                            end)
-                        table.insert(flyingCards, fc)
-
-                        local sh = { x=slot.x, y=slot.y, w=Theme.pitchCard.w, h=Theme.pitchCard.h, shimX=-Theme.pitchCard.w }
-                        flux.to(sh, 0.40, { shimX=Theme.pitchCard.w*1.5 }):ease("quadout")
-                            :oncomplete(function()
-                                for ii, s in ipairs(shimmers) do
-                                    if s == sh then table.remove(shimmers, ii); break end
-                                end
-                            end)
-                        table.insert(shimmers, sh)
-                    end
-                    selectedHandCard = nil
+                local ok
+                if substitutionFreedSlot then
+                    -- Free summon for substitution replacement
+                    ok = store:freeSummon(selectedHandCard.id, slot.slotType, slot.slotIndex, mode)
+                    if ok then substitutionFreedSlot = nil end
+                else
+                    ok = store:summonCard(selectedHandCard.id, slot.slotType, slot.slotIndex, mode)
                 end
+
+                if ok then
+                    Audio.play("card_summon")
+                    -- Traps fill the first free trap slot, not necessarily the one clicked.
+                    local idx, dest = slot.slotIndex, slot
+                    if slot.slotType == "trap" then
+                        idx  = #match.players.player.pitch.traps
+                        dest = Layout.trapSlot("player", idx)
+                    end
+                    local key = Pitch.slotKey("player", slot.slotType, idx)
+                    pitchAnims.hidden[key] = true
+                    local fc = { cardDef = cardDefCopy, x = srcX, y = srcY, w = dest.w, h = dest.h, mode = mode }
+                    flux.to(fc, 0.30, { x = dest.x, y = dest.y }):ease("quadout"):oncomplete(function()
+                        for ii, c in ipairs(flyingCards) do
+                            if c == fc then table.remove(flyingCards, ii); break end
+                        end
+                        pitchAnims.hidden[key] = nil
+                        local pop = { sx = 1, sy = 1 }
+                        pitchAnims.pop[key] = pop
+                        Tween.squash(pop, 0.35):oncomplete(function()
+                            if pitchAnims.pop[key] == pop then pitchAnims.pop[key] = nil end
+                        end)
+                    end)
+                    table.insert(flyingCards, fc)
+                end
+                selectedHandCard = nil
                 return
             end
 
@@ -1054,7 +854,6 @@ function Match.mousepressed(x, y, button)
                 local pitch = match.players.player.pitch
                 local card  = Match.getCardInSlot(pitch, slot)
                 if card then
-                    selectedPitchedCard = card
                     -- Striker, midfielder, and defender slots can all attack
                     local canAttack = slot.slotType == "striker"
                                    or slot.slotType == "midfielder"
@@ -1091,13 +890,6 @@ function Match.mousepressed(x, y, button)
                 return
             end
 
-            -- Fallthrough: view card detail
-            local viewPitch = match.players[slot.owner].pitch
-            local viewCard  = Match.getCardInSlot(viewPitch, slot)
-            if viewCard then
-                selectedPitchedCard = viewCard
-                selectedHandCard    = nil
-            end
             return
         end
     end
@@ -1120,6 +912,8 @@ function Match.keypressed(key)
         return nil
     end
 
+    if winT then return MatchEnd.keyAction(key) end
+
     if activeTrapActiv then
         if key == "space" or key == "return" then activeTrapActiv = nil end
         return nil
@@ -1130,7 +924,7 @@ function Match.keypressed(key)
     end
     if store and store.coverWindow then return nil end
 
-    if key == "tab" then HUD.debugAIHand = not HUD.debugAIHand; return nil end
+    if key == "tab" then aiHandDebug = not aiHandDebug; return nil end
     if key == "l"   then debugLogOpen = not debugLogOpen; if debugLogOpen then debugLogScroll = 0 end; return nil end
     if key == "m"   then selectedMode = selectedMode == "attack" and "defense" or "attack"; return nil end
 
@@ -1139,9 +933,7 @@ function Match.keypressed(key)
         elseif selectedAttackerSlot  then selectedAttackerSlot  = nil
         elseif substitutionFreedSlot then substitutionFreedSlot = nil
         elseif selectedHandCard      then selectedHandCard      = nil
-        else pauseOpen = true end
-    elseif key == "r" and store.match and store.match.winner then
-        return "restart"
+        else openPause() end
     end
     return nil
 end
@@ -1158,205 +950,55 @@ function Match.wheelmoved(x, y)
 end
 
 function Match.mousemoved(x, y)
+    mouseX, mouseY = x, y
     if activeCombat then return end
-    handMouseX     = x
-    hoveredCard    = nil
-    hoveredCardPos = nil
-    for _, hbox in ipairs(handHitboxes) do
-        if Match.inRect(x, y, hbox) then
-            hoveredCard    = hbox.cardDef
-            hoveredCardPos = { x=hbox.x, y=hbox.y }
-            return
-        end
-    end
+    handMouseX, handMouseY = x, y
 end
 
 -- ── Helpers ───────────────────────────────────────────────────────────────────
 
-function Match.onLPDamage(dealer)
-    lpDealer      = dealer
-    lpFlash.alpha = 1.0
-    flux.to(lpFlash, 1.6, { alpha=0 }):ease("quadout")
+-- LP damage: ribbon banner + confetti at the goal that was hit. isGoal = keeper shot.
+function Match.onLPDamage(dealer, isGoal)
+    local P  = Layout.pitch
+    local cy = P.y + P.h / 2
     if dealer == "player" then
         Character.setState("attacking")
+        banner:show(isGoal and "GOAL!" or "LP DAMAGE DEALT!", "good")
+        Confetti.burst(P.x + P.w - 40, cy, 90)
     else
         Character.setState("worried")
-    end
-
-    if goalParticles then
-        local L  = Theme.layout
-        local cx = L.pitchX + L.pitchW / 2
-        local cy = love.graphics.getHeight() / 2
-        goalParticles:setPosition(cx, cy)
-        goalParticles:emit(50)
+        banner:show(isGoal and "OPPONENT SCORES!" or "LP DAMAGE TAKEN!", "bad")
+        Confetti.burst(P.x + 40, cy, 60)
     end
 end
 
-function Match.flash(msg)
-    flashMsg   = msg
-    flashTimer = FLASH_DURATION
+function Match.flash(msg, kind)
+    banner:show(string.upper(tostring(msg)), kind or "error")
 end
 
-function Match.drawScoutReveal(pitchedCard)
-    local W, H = love.graphics.getWidth(), love.graphics.getHeight()
-    love.graphics.setColor(0, 0, 0, 0.72)
-    love.graphics.rectangle("fill", 0, 0, W, H)
-
-    local pw, ph = 260, 340
-    local px, py = math.floor((W - pw) / 2), math.floor((H - ph) / 2)
-    love.graphics.setColor(0.06, 0.03, 0.12, 1)
-    love.graphics.rectangle("fill", px, py, pw, ph, 8)
-    love.graphics.setColor(0.30, 0.55, 1.0, 0.85)
-    love.graphics.setLineWidth(2)
-    love.graphics.rectangle("line", px, py, pw, ph, 8)
-    love.graphics.setLineWidth(1)
-
-    Fonts.with(11, function()
-        love.graphics.setColor(0.30, 0.75, 1.0, 1)
-        love.graphics.printf("SCOUT REPORT", px, py + 13, pw, "center")
-    end)
-
-    if pitchedCard then
-        local cw, ch = 110, 148
-        local cx = px + math.floor((pw - cw) / 2)
-        local cy = py + 42
-        Card.drawPitched(pitchedCard, cx, cy, { faceDown = false, w = cw, h = ch })
-        local d     = pitchedCard.definition
-        local stats = d.stats or {}
-        Fonts.with(11, function()
-            love.graphics.setColor(0.957, 0.914, 0.824, 1)
-            love.graphics.printf(d.name or "", px + 8, cy + ch + 10, pw - 16, "center")
-        end)
-        Fonts.with(9, function()
-            love.graphics.setColor(Theme.atkColor)
-            love.graphics.printf("ATK " .. tostring(stats.atk or 0), px + 8, cy + ch + 28, pw/2 - 8, "center")
-            love.graphics.setColor(Theme.defColor)
-            love.graphics.printf("DEF " .. tostring(stats.def or 0), px + pw/2, cy + ch + 28, pw/2 - 8, "center")
-        end)
+-- Card back flies from your deck pile into the hand, or from the opponent's deck
+-- pill up into their avatar.
+function Match.spawnDrawAnim(isPlayer)
+    local dk = Layout.bottom.deck
+    local da
+    local function remove()
+        for ii, d in ipairs(drawAnims) do
+            if d == da then table.remove(drawAnims, ii); break end
+        end
+    end
+    if isPlayer then
+        local h = Layout.bottom.hand
+        da = { x = dk.x, y = dk.y, s = 1 }
+        flux.to(da, 0.40, { x = h.cx - dk.w / 2, y = h.baseY - dk.h - 30, s = 1.5 })
+            :ease("quadout"):oncomplete(remove)
     else
-        Fonts.with(11, function()
-            love.graphics.setColor(0.55, 0.55, 0.60, 1)
-            love.graphics.printf("No card in that slot", px + 10, py + ph/2 - 8, pw - 20, "center")
-        end)
+        local o, av = Layout.top.oppDeck, Layout.top.oppAvatar
+        da = { x = o.x + o.w / 2 - dk.w / 2, y = o.y + o.h + 4, s = 0.6 }
+        flux.to(da, 0.35, { x = av.cx - dk.w / 2, y = av.cy - dk.h / 2, s = 0.15 })
+            :ease("quadin"):oncomplete(remove)
     end
-
-    Fonts.with(9, function()
-        love.graphics.setColor(0.38, 0.38, 0.42, 0.85)
-        love.graphics.printf("Click to dismiss", px, py + ph - 20, pw, "center")
-    end)
-end
-
--- ── Debug log panel ──────────────────────────────────────────────────────────
-
-local function fmtPayload(p)
-    if not p then return "" end
-    local parts = {}
-    local order = { "player","ability","name","cardName","slot","slotType","slotIndex","outcome",
-                    "damage","half","winner","turn","reason","unimplemented" }
-    local seen = {}
-    for _, k in ipairs(order) do
-        if p[k] ~= nil then
-            local v = p[k]
-            if type(v) == "table" then v = "{"..table.concat((function()
-                local t={}; for kk,vv in pairs(v) do table.insert(t,kk.."="..tostring(vv)) end; return t
-            end)(), ",").."}" end
-            table.insert(parts, k.."="..tostring(v)); seen[k] = true
-        end
-    end
-    for k, v in pairs(p) do
-        if not seen[k] then
-            if type(v) == "table" then v = "{...}" end
-            table.insert(parts, k.."="..tostring(v))
-        end
-    end
-    return table.concat(parts, "  ")
-end
-
-local function logLineColor(evType)
-    if evType == "card_played" or evType == "card_drawn" then return {0.55, 0.90, 0.55} end
-    if evType == "strategy_played"                       then return {0.40, 0.85, 1.00} end
-    if evType == "trap_activated"                        then return {0.90, 0.55, 1.00} end
-    if evType == "attack_declared" or evType == "cover"  then return {1.00, 0.80, 0.30} end
-    if evType == "lp_damage"                             then return {1.00, 0.35, 0.35} end
-    if evType == "defender_destroy"                      then return {1.00, 0.55, 0.20} end
-    if evType == "shot"                                  then return {0.30, 0.80, 1.00} end
-    if evType == "turn_end"                              then return {0.50, 0.50, 0.60} end
-    if evType == "half_end"                              then return {1.00, 0.85, 0.20} end
-    if evType == "attack_wasted"                         then return {0.55, 0.55, 0.55} end
-    return {0.75, 0.75, 0.80}
-end
-
-function Match.drawDebugLog(match)
-    local W = love.graphics.getWidth()
-    local H = love.graphics.getHeight()
-    local panW = 520
-    local panH = H - 48
-    local panX = (W - panW) / 2
-    local panY = 28
-
-    -- Background
-    love.graphics.setColor(0.04, 0.04, 0.10, 0.96)
-    love.graphics.rectangle("fill", panX, panY, panW, panH, 8)
-    love.graphics.setColor(0.30, 0.55, 1.00, 0.70)
-    love.graphics.setLineWidth(1.5)
-    love.graphics.rectangle("line", panX, panY, panW, panH, 8)
-    love.graphics.setLineWidth(1)
-
-    -- Title
-    Fonts.with(11, function()
-        love.graphics.setColor(0.50, 0.75, 1.00, 1)
-        love.graphics.printf("DEBUG LOG  ·  " .. #match.log .. " events  (scroll: wheel,  close: L)",
-            panX, panY + 7, panW, "center")
-    end)
-
-    local lineH    = 17
-    local padX     = 12
-    local innerY   = panY + 28
-    local innerH   = panH - 36
-    local maxLines = math.floor(innerH / lineH)
-
-    -- Build display lines (newest at bottom)
-    local lines = {}
-    for _, entry in ipairs(match.log) do
-        local prefix = string.format("[H%s T%02d %s] %-20s",
-            tostring(entry.half), entry.turn, entry.phase:sub(1,3):upper(), entry.type)
-        local detail = fmtPayload(entry.payload)
-        table.insert(lines, { prefix = prefix, detail = detail, evType = entry.type })
-    end
-
-    local total   = #lines
-    local maxScroll = math.max(0, total - maxLines)
-    debugLogScroll  = math.max(0, math.min(debugLogScroll, maxScroll))
-
-    local startIdx = math.max(1, total - maxLines - debugLogScroll + 1)
-    local endIdx   = math.max(1, total - debugLogScroll)
-
-    love.graphics.setScissor(panX + padX, innerY, panW - padX*2, innerH)
-    local y = innerY
-    for i = startIdx, endIdx do
-        local ln  = lines[i]
-        local col = logLineColor(ln.evType)
-        Fonts.with(8, function()
-            love.graphics.setColor(col[1] * 0.65, col[2] * 0.65, col[3] * 0.65, 1)
-            love.graphics.print(ln.prefix, panX + padX, y)
-            love.graphics.setColor(col[1], col[2], col[3], 1)
-            love.graphics.print(ln.detail, panX + padX + 210, y)
-        end)
-        y = y + lineH
-    end
-    love.graphics.setScissor()
-
-    -- Scroll indicator
-    if maxScroll > 0 then
-        local trackH = innerH - 4
-        local thumbH = math.max(20, trackH * maxLines / total)
-        local thumbT = (maxScroll - debugLogScroll) / maxScroll
-        local thumbY = innerY + 2 + thumbT * (trackH - thumbH)
-        love.graphics.setColor(0.30, 0.55, 1.00, 0.40)
-        love.graphics.rectangle("fill", panX + panW - 8, innerY, 5, trackH, 2)
-        love.graphics.setColor(0.50, 0.75, 1.00, 0.90)
-        love.graphics.rectangle("fill", panX + panW - 8, thumbY, 5, thumbH, 2)
-    end
+    Audio.play("card_summon", 0.35)
+    table.insert(drawAnims, da)
 end
 
 function Match.getCardInSlot(pitch, slot)
@@ -1367,41 +1009,18 @@ function Match.getCardInSlot(pitch, slot)
     return nil
 end
 
-function Match.drawAIHandDebug(match)
-    local o   = match.players.opponent
-    local W   = Theme.layout.pitchW
-    local H   = love.graphics.getHeight()
-    local panW = 340
-    local panH = math.min(H - 80, 20 + #o.hand * 22 + 16)
-    local panX = (W - panW) / 2
-    local panY = 40
+-- Dev hook for tools/snapshot scenarios.
+function Match.debugStore() return store end
 
-    love.graphics.setColor(0.05, 0.05, 0.12, 0.94)
-    love.graphics.rectangle("fill", panX, panY, panW, panH, 8)
-    love.graphics.setColor(0.85, 0.65, 0.15, 1)
-    love.graphics.setLineWidth(2)
-    love.graphics.rectangle("line", panX, panY, panW, panH, 8)
-    love.graphics.setLineWidth(1)
-    love.graphics.setColor(0.85, 0.65, 0.15, 1)
-    love.graphics.printf("AI HAND  (" .. #o.hand .. " cards)", panX, panY + 6, panW, "center")
-
-    local y = panY + 26
-    for _, card in ipairs(o.hand) do
-        if y > panY + panH - 18 then
-            love.graphics.setColor(0.55, 0.55, 0.60, 1)
-            love.graphics.printf("...", panX + 10, y, panW - 20, "left")
-            break
-        end
-        local col = Theme.cardColors[card.type]
-        if col then love.graphics.setColor(col[1], col[2], col[3], 1)
-        else         love.graphics.setColor(0.7, 0.7, 0.7, 1) end
-        local stat = ""
-        if card.stats then
-            stat = "  A" .. (card.stats.atk or 0) .. "/D" .. (card.stats.def or 0)
-        end
-        love.graphics.printf("[" .. card.type:sub(1,3):upper() .. "] " .. card.name .. stat,
-            panX + 10, y, panW - 20, "left")
-        y = y + 20
+-- Dev hook for tools/snapshot scenarios: show a synthetic overlay.
+--   kind = "combat" (store combat record) | "trap" (trap activation record) | "scout" (pitched card)
+function Match.debugOverlay(kind, rec)
+    if kind == "combat" then
+        table.insert(combatQueue, rec)
+    elseif kind == "trap" then
+        table.insert(trapActivQueue, rec)
+    elseif kind == "scout" then
+        scoutReveal = { card = rec, timer = 3.5, t = 0 }
     end
 end
 

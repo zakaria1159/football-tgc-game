@@ -1,0 +1,15 @@
+local T      = require("tests.t")
+local Reveal = require("ui.overlay.reveal")
+
+T.test("scout card starts face-down, turns edge-on, lands face-up", function()
+    local p = Reveal.pose(0, 3.5)
+    T.ok(not p.faceUp); T.near(p.flipX, 1)
+    p = Reveal.pose(Reveal.FLIP_DUR / 2, 3.2); T.near(p.flipX, 0, 1e-9)
+    p = Reveal.pose(Reveal.FLIP_DUR, 3.0); T.ok(p.faceUp); T.near(p.flipX, 1); T.near(p.scale, 1)
+end)
+
+T.test("scout card shrinks away during the last OUT_DUR seconds", function()
+    local p = Reveal.pose(2.0, 1.0); T.near(p.scale, 1); T.near(p.alpha, 1)
+    p = Reveal.pose(3.35, Reveal.OUT_DUR / 2); T.near(p.scale, 0.5); T.near(p.alpha, 0.5)
+    p = Reveal.pose(3.5, 0); T.near(p.scale, 0); T.near(p.alpha, 0)
+end)

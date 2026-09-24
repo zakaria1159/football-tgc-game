@@ -1,0 +1,95 @@
+local T  = require("tests.t")
+local Fx = require("ui.overlay.combatfx")
+
+T.test("cards slide in from both sides and land with a squash", function()
+    local p = Fx.pose(0)
+    T.near(p.atkX, -Fx.SLIDE_DIST); T.near(p.defX, Fx.SLIDE_DIST); T.eq(p.sx, 1); T.eq(p.sy, 1)
+    p = Fx.pose(Fx.SLIDE)
+    T.near(p.atkX, 0); T.near(p.defX, 0)
+    T.ok(p.sx > 1.1 and p.sy < 0.9, "squashed on landing")
+    p = Fx.pose(Fx.SLIDE + Fx.SQUASH + 0.01)
+    T.near(p.sx, 1); T.near(p.sy, 1)
+end)
+
+T.test("defender flips and the clash starts at CLASH, with a decaying shake", function()
+    T.ok(not Fx.pose(Fx.CLASH - 0.01).reveal); T.ok(Fx.pose(Fx.CLASH).reveal)
+    T.eq(Fx.pose(Fx.CLASH - 0.01).clash, 0)
+    T.near(Fx.flip(0), 1); T.near(Fx.flip(Fx.CLASH), 0, 1e-9); T.near(Fx.flip(Fx.CLASH + Fx.FLIP), 1)
+    T.eq(Fx.shake(Fx.CLASH - 0.01), 0); T.eq(Fx.shake(Fx.CLASH + Fx.CLASH_DUR + 0.01), 0)
+    local peak = 0
+    for t = Fx.CLASH, Fx.CLASH + Fx.CLASH_DUR, 0.005 do peak = math.max(peak, math.abs(Fx.shake(t))) end
+    T.ok(peak > 3 and peak <= Fx.SHAKE, "shake peak " .. peak)
+end)
+
+T.test("badges count up, then the result, then the hint", function()
+    local p = Fx.pose(Fx.COUNT - 0.01)
+    T.eq(p.badge, 0); T.near(p.count, 0)
+    p = Fx.pose(Fx.COUNT + Fx.COUNT_DUR)
+    T.near(p.count, 1); T.ok(p.badge > 0.9)
+    T.eq(Fx.pose(Fx.RESULT - 0.01).result, 0); T.near(Fx.pose(Fx.RESULT + Fx.RESULT_DUR).result, 1)
+    T.near(Fx.pose(Fx.HINT - 0.01).hint, 0); T.near(Fx.pose(Fx.HINT + 0.25).hint, 1)
+    T.ok(Fx.SLIDE < Fx.CLASH and Fx.CLASH < Fx.COUNT and Fx.COUNT < Fx.RESULT and Fx.RESULT < Fx.HINT)
+    T.eq(Fx.countValue(2300, 0), 0); T.eq(Fx.countValue(2300, 0.5), 1150); T.eq(Fx.countValue(2300, 1), 2300)
+end)
+
+T.test("phase names and crossed marks", function()
+    T.eq(Fx.phase(0), "enter"); T.eq(Fx.phase(Fx.SLIDE + 0.01), "land"); T.eq(Fx.phase(Fx.CLASH), "clash")
+    T.eq(Fx.phase(Fx.COUNT), "count"); T.eq(Fx.phase(Fx.RESULT), "result")
+    T.ok(Fx.crossed(0.5, 0.6, 0.55)); T.ok(Fx.crossed(0.5, 0.55, 0.55))
+    T.ok(not Fx.crossed(0.55, 0.6, 0.55)); T.ok(not Fx.crossed(0.1, 0.2, 0.55))
+end)
+
+T.test("result ribbons are colour-coded by outcome", function()
+    local O = require("ui.theme").outcome
+    local r = Fx.result("defender_destroyed", 0); T.eq(r.text, "DESTROYED"); T.eq(r.fill, O.red)
+    T.eq(Fx.result("defender_destroyed", 300).text, "DESTROYED · LP -300")
+    r = Fx.result("defender_exhausted"); T.eq(r.text, "EXHAUSTED");    T.eq(r.fill, O.orange)
+    r = Fx.result("attacker_exhausted"); T.eq(r.text, "BLOCKED");      T.eq(r.fill, O.blue)
+    r = Fx.result("save");               T.eq(r.text, "KEEPER SAVES"); T.eq(r.fill, O.blue)
+    r = Fx.result("damage", 500);        T.eq(r.text, "LP DAMAGE -500"); T.eq(r.fill, O.yellow)
+    r = Fx.result("tie");                T.eq(r.text, "TIE");          T.eq(r.fill, O.grey)
+    T.eq(Fx.result("weird").text, "WEIRD")
+end)
+
+T.test("fates: who is destroyed or exhausted", function()
+    local a, d = Fx.fates("defender_destroyed"); T.eq(a, nil); T.eq(d, "destroyed")
+    a, d = Fx.fates("defender_exhausted"); T.eq(d, "exhausted")
+    a, d = Fx.fates("attacker_exhausted"); T.eq(a, "exhausted"); T.eq(d, nil)
+    a, d = Fx.fates("tie"); T.eq(a, "exhausted"); T.eq(d, "exhausted")
+    a, d = Fx.fates("damage"); T.eq(a, nil); T.eq(d, nil)
+end)
+
+T.test("cardView: badge totals equal the snapshot; keeper shows its effective-DEF bonus", function()
+    local keeper = { id = "k", name = "Iron Fists", type = "keeper", rarity = "rare", stats = { atk = 300, def = 1800 } }
+    local function lookup(name, t) if name == "Iron Fists" and t == "keeper" then return keeper end end
+    local v = Fx.cardView({ name = "Iron Fists", type = "keeper", atk = 300, def = 2250,
+                            atkBonus = 0, defBonus = 0, isKeeper = true }, lookup)
+    T.eq(v.cardDef, keeper); T.eq(v.defBonus, 450); T.eq(v.stats.def, 1800); T.eq(v.def, 2250)
+    v = Fx.cardView({ name = "X", type = "striker", atk = 2500, def = 600, atkBonus = 200, defBonus = 0 }, lookup)
+    T.eq(v.cardDef.name, "X"); T.eq(v.stats.atk, 2300); T.eq(v.atkBonus, 200)
+    T.eq(Fx.cardView(nil, lookup), nil)
+    T.eq(Fx.lookup("Iron Fists", "keeper").id, "keeper-iron-fists")
+end)
+
+T.test("shatter pieces tile the card exactly and are deterministic", function()
+    local ps = Fx.shatterPieces(280, 354, 3, 2, 7)
+    T.eq(#ps, 6)
+    local area = 0
+    for _, p in ipairs(ps) do
+        area = area + p.w * p.h
+        T.ok(p.sx >= 0 and p.sy >= 0 and p.sx + p.w <= 280 + 1e-9 and p.sy + p.h <= 354 + 1e-9)
+    end
+    T.near(area, 280 * 354, 1e-6)
+    local again = Fx.shatterPieces(280, 354, 3, 2, 7)
+    for i, p in ipairs(ps) do T.eq(again[i].vx, p.vx); T.eq(again[i].spin, p.spin) end
+end)
+
+T.test("shatter pieces fly outward and fade", function()
+    local ps = Fx.shatterPieces(300, 200, 3, 2, 3)
+    T.ok(ps[1].vx < 0 and ps[3].vx > 0, "left/right pieces fly left/right")
+    T.ok(ps[1].vy < 0, "everything pops upward first")
+    local dx, dy, rot, a = Fx.piecePose(ps[1], 0)
+    T.eq(dx, 0); T.eq(dy, 0); T.eq(rot, 0); T.eq(a, 1)
+    dx, dy, rot, a = Fx.piecePose(ps[1], 1)
+    T.ok(dx < 0); T.eq(a, 0)
+end)

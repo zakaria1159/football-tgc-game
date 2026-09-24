@@ -34,6 +34,16 @@ function Combat.keeperEffectiveDef(keeper, pitch)
     return base + bonus
 end
 
+-- Midfield power for tempo control — only actual midfielder-type cards count.
+-- Uses ATK if attack mode, DEF if defense mode. Non-midfielder cards in the slot return 0.
+function Combat.midfielderPower(pitch)
+    local mid = pitch and pitch.midfielder
+    if not mid then return 0 end
+    if mid.definition.type ~= "midfielder" then return 0 end
+    local stats = mid.definition.stats or {}
+    return mid.mode == "attack" and (stats.atk or 0) or (stats.def or 0)
+end
+
 -- +200 ATK bonus from a midfielder card in attack mode on the given pitch.
 function Combat.midfielderCardAtkBonus(pitch)
     local mid = pitch and pitch.midfielder
