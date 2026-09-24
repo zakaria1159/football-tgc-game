@@ -67,6 +67,15 @@ function Phases.summon(matchState, cardId, slotType, slotIndex, mode, freeSummon
         end
     end
 
+    -- The Substitution card's free placement: only into the slot it freed, once, this turn.
+    if freeSummon then
+        local fs = player.subFreedSlot
+        if not fs then return false, "no free placement pending" end
+        if fs.type ~= slotType or (fs.index or 0) ~= (slotIndex or 0) then
+            return false, "place it in the freed slot"
+        end
+    end
+
     -- Summon limit (skip for trap cards which use a free set action; skip for free summons)
     if not freeSummon and slotType ~= "trap" then
         local limit = (player.nextTurnSummonLimit or C.MATCH.MAX_SUMMONS_PER_TURN)
@@ -135,7 +144,11 @@ function Phases.summon(matchState, cardId, slotType, slotIndex, mode, freeSummon
     end
 
     Phases._setSlot(player.pitch, slot, pitched)
-    if not freeSummon then
+    if freeSummon then
+        -- Substitution card: no summon, no substitution, and it may act at once (spec B2).
+        player.subFreedSlot     = nil
+        pitched.actsImmediately = true
+    else
         matchState.summonCount = matchState.summonCount + 1
     end
     State.log(matchState, T.EventType.CARD_PLAYED,
@@ -286,6 +299,8 @@ function Phases.playStrategy(matchState, cardId, opts)
         -- Remove from pitch → add definition back to hand
         Phases._setSlot(player.pitch, opts.returnSlot, nil)
         table.insert(player.hand, returnCard.definition)
+        -- The free placement (Phases.summon with freeSummon) fills this slot, this turn.
+        player.subFreedSlot = { type = opts.returnSlot.type, index = opts.returnSlot.index or 0 }
         State.log(matchState, "strategy_played", { ability = ability, slot = opts.returnSlot, player = matchState.activePlayer })
         return { outcome = "substitution_done", freedSlot = opts.returnSlot }, nil
 
@@ -370,13 +385,13 @@ function Phases.changeMode(matchState, slotType, slotIndex)
 end
 
 -- True when a card can declare an attack right now: attack mode, not exhausted, not locked,
--- and not summoned this turn — unless it has Pace, or C.MATCH.SUMMONED_CAN_ATTACK is on.
--- Pure (engine, AI, scene).
+-- and not summoned this turn — unless it has Pace, came on with the Substitution card
+-- (actsImmediately), or C.MATCH.SUMMONED_CAN_ATTACK is on. Pure (engine, AI, scene).
 function Phases.canAttackNow(card)
     if not card or card.exhausted or card.cannotActNextTurn or card.mode ~= "attack" then
         return false
     end
-    if card.summonedThisTurn and not C.MATCH.SUMMONED_CAN_ATTACK
+    if card.summonedThisTurn and not card.actsImmediately and not C.MATCH.SUMMONED_CAN_ATTACK
        and not Resolver.canAttackWhenSummoned(card) then
         return false
     end
@@ -431,8 +446,9 @@ function Phases.attack(matchState, attackerSlot, defenderSlot)
     State.log(matchState, T.EventType.ATTACK_DECLARED,
         { attacker = attackerSlot, defender = defenderSlot })
 
-    -- Pace: a card summoned this turn only gets this far with Pace.
-    if attacker.summonedThisTurn and not C.MATCH.SUMMONED_CAN_ATTACK then
+    -- Pace: a card summoned this turn only gets this far with Pace (or as the Substitution
+    -- card's incoming card, which is no Pace trigger).
+    if attacker.summonedThisTurn and not attacker.actsImmediately and not C.MATCH.SUMMONED_CAN_ATTACK then
         Resolver.trigger(matchState, matchState.activePlayer, attacker, "PACE")
     end
 
@@ -793,6 +809,7 @@ function Phases.endTurn(matchState)
                 c.lockedNextTurn    = nil
                 c.summonedThisTurn  = false
                 c.modeChanged       = false
+                c.actsImmediately   = nil
             end
         end
         recoverCard(pitch.keeper)
@@ -807,6 +824,7 @@ function Phases.endTurn(matchState)
         Phases._spend(matchState, activeId, e.card, C.STAMINA.TURN_COST)
     end
     matchState.players[activeId].pitch.throughBallUsed = nil   -- Through ball: once per turn
+    matchState.players[activeId].subFreedSlot = nil            -- Substitution card: this turn only
 
     State.log(matchState, T.EventType.TURN_END, { turn = matchState.turn })
 

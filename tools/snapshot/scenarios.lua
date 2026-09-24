@@ -683,4 +683,53 @@ S.stamina = {
     { 4.8, function(c) c.quit() end },
 }
 
+-- Substitutions (harness-only board, turn 2): a tired Poacher and a 1-stamina Complete
+-- Forward up front, the Stopper facing them. Speed Demon replaces the Poacher through the
+-- picker on the occupied slot (SUBS 1 / 3, the Poacher back in hand). Then the Substitution
+-- card returns the Complete Forward and Clinical Finisher comes on free (SUBS still 1 / 3,
+-- SUMMONS 1 / 2) and is selected as an attacker the same turn.
+local subIn, subCardDef, subFree
+S.subs = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, kickOff },
+    { 1.5, function()
+        local m = store().match
+        local P, O = m.players.player.pitch, m.players.opponent.pitch
+        P.strikers[1]  = staminaCard("str-poacher", "striker", "attack", 0)
+        P.strikers[2]  = staminaCard("str-complete-forward", "striker", "attack", 1)
+        O.defenders[1] = staminaCard("def-stopper", "defender", "attack")
+        subIn      = defById("str-speed-demon")
+        subCardDef = defById("strat-substitution")
+        subFree    = defById("str-clinical-finisher")
+        table.insert(hand(), subIn)
+        table.insert(hand(), subCardDef)
+        table.insert(hand(), subFree)
+        m.turn = 2
+    end },
+    { 1.8, function() move(handPoint(subIn)) end },
+    { 2.0, function() press(handPoint(subIn)) end },
+    { 2.1, function() move(640, 60) end },
+    { 2.4, function(c) c.snap("select") end },
+    { 2.5, function() click(center(Layout.slot("player", "striker", 1))) end },
+    { 2.8, function(c) c.snap("picker") end },
+    { 2.9, function() love.keypressed("a") end },
+    { 3.0, function() move(640, 60) end },
+    { 3.7, function(c) c.snap("sub") end },
+    { 3.8, function() press(handPoint(subCardDef)) end },
+    { 4.0, function() click(center(Layout.slot("player", "striker", 2))) end },
+    { 4.1, function() move(640, 60) end },
+    { 4.2, function() press(handPoint(subFree)) end },   -- selected: the freed slot glows
+    { 4.3, function() move(640, 60) end },
+    { 4.5, function(c) c.snap("freed") end },
+    { 4.7, function() click(center(Layout.slot("player", "striker", 2))) end },
+    { 4.8, function() love.keypressed("a") end },
+    { 4.9, function() move(640, 60) end },
+    { 5.6, function(c) c.snap("subcard") end },
+    { 5.7, function() click(center(Layout.bottom.startAttack)) end },
+    { 5.9, function() click(center(Layout.slot("player", "striker", 2))) end },
+    { 6.0, function() move(640, 60) end },
+    { 6.4, function(c) c.snap("attacker") end },
+    { 6.6, function(c) c.quit() end },
+}
+
 return S

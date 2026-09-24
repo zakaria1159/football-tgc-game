@@ -100,7 +100,9 @@ function Zoom.statusLines(cardDef, pitched, pitch, hideHidden)
     end
     if pitched.exhausted then add("EXHAUSTED", "bad") end
     if pitched.cannotActNextTurn or pitched.lockedNextTurn then add("Cannot act next turn", "bad") end
-    if pitched.summonedThisTurn and pitched.mode == "attack" and pitched.slotType ~= "keeper"
+    if pitched.summonedThisTurn and pitched.actsImmediately then
+        add("Substitute: may attack this turn", "bonus")
+    elseif pitched.summonedThisTurn and pitched.mode == "attack" and pitched.slotType ~= "keeper"
        and not C.MATCH.SUMMONED_CAN_ATTACK and not Resolver.canAttackWhenSummoned(pitched) then
         add("Just summoned: attacks next turn", "warn")
     end

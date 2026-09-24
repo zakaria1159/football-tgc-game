@@ -499,7 +499,7 @@ function Match.hintText(match)
         elseif selectedHandCard and selectedHandCard.ability == "SUBSTITUTION" then
             return "SUBSTITUTION: click a pitched card to return it to hand"
         elseif substitutionFreedSlot then
-            return "SUBSTITUTION: select a card and place it in the freed slot (free)"
+            return "SUBSTITUTION: place a card in the freed slot — free, no SUB used, it may attack this turn"
         elseif selectedHandCard and selectedHandCard.type == "trap" then
             return "Click a TRAP slot by your goal to set it face-down  ·  ESC to cancel"
         elseif selectedHandCard and Phases.canKeeperSwap(match, selectedHandCard) then
