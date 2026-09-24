@@ -12,6 +12,7 @@
 --
 -- Seat "player" is the first seat (it kicks off every half). The AI plays it through a
 -- mirrored view of the match; its trap prompts are answered with the AI's own trap policy.
+-- Half-time breaks are instant: both seats swap cards with AI.mulliganChoice, then kick off.
 -- Acceptance (spec §6): n=1000 with the three decks = 9,000 games; every deck's overall
 -- win rate 42–58%; 0 stalls; first-seat match win rate 45–55%.
 
@@ -98,7 +99,12 @@ local function playMatch(deckP, deckO, seed)
     while not m.winner do
         steps = steps + 1
         if steps > 200000 or m.turn > CAP then stall = true; break end
-        if store.coverWindow then
+        if m.halfTimeBreak then
+            -- Half-time is instant: the store already made the "opponent" seat's AI swap;
+            -- the first seat swaps with the same rule, then kick off.
+            store:mulligan(AI.mulliganChoice(m, "player"), "player")
+            store:kickOff()
+        elseif store.coverWindow then
             store:resolveCover(AI.decideCover(store))
         elseif store.trapWindow then
             answerTrapWindow(store)

@@ -236,7 +236,10 @@ S.pause = {
 }
 
 -- Combat overlay: destroyed (face-down defender flips, shatter), keeper save (Eff. DEF
--- bonus tag), LP damage. Synthetic records via Match.debugOverlay (harness-only).
+-- bonus tag), LP damage; then opponent attacks: your card stays on the left, the attacker
+-- slides in from the right and lunges left, your destroyed defender shatters on the left,
+-- and an open goal puts EMPTY on the left. Synthetic records via Match.debugOverlay
+-- (harness-only).
 local function combat(rec) return function() require("scenes.match").debugOverlay("combat", rec) end end
 S.combat = {
     { 0.3, function() math.randomseed(7) end },
@@ -255,6 +258,8 @@ S.combat = {
         attacker = snapFrom("str-poacher"),
         defender = snapFrom("keeper-iron-fists", { def = 2250, isKeeper = true }),
         outcome = "save", margin = -250, damage = 0, activePlayer = "opponent" }) },
+    { 3.9,  function(c) c.snap("opp_slide") end },
+    { 4.35, function(c) c.snap("opp_lunge") end },
     { 5.9,  function(c) c.snap("save") end },
     { 6.0,  function() love.keypressed("space") end },
     { 6.1,  combat({
@@ -263,8 +268,20 @@ S.combat = {
         outcome = "damage", margin = 500, damage = 500, activePlayer = "player" }) },
     { 8.2,  function(c) c.snap("damage") end },
     { 8.3,  function() love.keypressed("space") end },
-    { 8.6,  function(c) c.snap("dismissed") end },
-    { 8.9,  function(c) c.quit() end },
+    { 8.4,  combat({
+        attacker = snapFrom("str-speed-demon"),
+        defender = snapFrom("def-the-rock", { mode = "defense", wasHidden = true }),
+        outcome = "defender_destroyed", margin = 400, damage = 0, activePlayer = "opponent" }) },
+    { 9.9,  function(c) c.snap("opp_shatter") end },
+    { 10.5, function(c) c.snap("opp_destroyed") end },
+    { 10.6, function() love.keypressed("space") end },
+    { 10.7, combat({
+        attacker = snapFrom("str-poacher"), defender = nil,
+        outcome = "damage", margin = 0, damage = 800, activePlayer = "opponent" }) },
+    { 12.8, function(c) c.snap("opp_open") end },
+    { 12.9, function() love.keypressed("space") end },
+    { 13.2, function(c) c.snap("dismissed") end },
+    { 13.5, function(c) c.quit() end },
 }
 
 -- Trap activation: flash, flip, stamp, dust, full; then an opponent trap.
@@ -361,7 +378,14 @@ S.scout = {
     { 5.5,  function(c) c.quit() end },
 }
 
--- Half time (harness-only: zero the opponent's LP and let the store end the half).
+-- Half time (harness-only: zero the opponent's LP and let the store end the half). The
+-- ribbon plays, then the half-time screen: pick 2 cards (click + key), SWAP, pause over the
+-- screen, KICK OFF, the SECOND HALF banner, then the pitch.
+local function htCard(i)
+    local HT = require("ui.overlay.halftime")
+    local r = HT.cardRects(#hand())[i]
+    return r.x + r.w / 2, r.y + r.h / 2
+end
 S.halftime = {
     { 0.3,  function() math.randomseed(7) end },
     { 0.5,  kickOff },
@@ -372,8 +396,21 @@ S.halftime = {
     end },
     { 1.72, function(c) c.snap("slide") end },
     { 2.4,  function(c) c.snap("ribbon") end },
-    { 4.9,  function(c) c.snap("after") end },
-    { 5.2,  function(c) c.quit() end },
+    { 5.3,  function(c) c.snap("screen") end },
+    { 5.4,  function() click(htCard(2)) end },
+    { 5.5,  function() love.keypressed("4") end },
+    { 5.6,  function() move(center(require("ui.overlay.halftime").SWAP_BTN)) end },
+    { 5.9,  function(c) c.snap("selected") end },
+    { 6.0,  function() love.keypressed("s") end },
+    { 6.1,  function() move(640, 120) end },
+    { 6.7,  function(c) c.snap("swapped") end },
+    { 6.8,  function() love.keypressed("escape") end },
+    { 7.2,  function(c) c.snap("pause") end },
+    { 7.3,  function() love.keypressed("escape") end },
+    { 7.6,  function() love.keypressed("return") end },
+    { 8.1,  function(c) c.snap("banner") end },
+    { 10.0, function(c) c.snap("pitch") end },
+    { 10.3, function(c) c.quit() end },
 }
 
 -- Victory (harness-only: you already won a half; win the second), then R to play again.
@@ -429,6 +466,11 @@ S.revealed = {
         P.defenders[1] = revealed("def-the-rock", "defender")
         P.defenders[2] = pitched("def-stopper", "defender", "defense")
         P.midfielder   = pitched("mid-box-to-box", "midfielder", "defense")
+        -- Revealed keeper: face-up defense, must never show the flip ribbon.
+        P.keeper       = revealed("keeper-iron-fists", "keeper")
+        -- Revealed but exhausted: legal to flip in every other way, but exhausted right now.
+        P.strikers[1]  = revealed("str-target-man", "striker")
+        P.strikers[1].exhausted = true
         O.defenders[1] = revealed("def-destroyer", "defender")
         O.defenders[2] = pitched("def-libero", "defender", "defense")
         O.midfielder   = revealed("mid-deep-lying-playmaker", "midfielder")

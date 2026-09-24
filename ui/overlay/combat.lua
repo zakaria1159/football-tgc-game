@@ -2,7 +2,8 @@
 --   rec = { attacker, defender, outcome, margin, damage, activePlayer }   (store:_pushCombat)
 --   attacker / defender = { name, type, mode, wasHidden, atk, def, atkBonus, defBonus, isKeeper }
 -- CombatOverlay.draw(rec, t): t = seconds since the overlay opened. All timing lives in
--- ui/overlay/combatfx.lua (pure, unit-tested).
+-- ui/overlay/combatfx.lua (pure, unit-tested). The player's card is always on the left
+-- (Fx.sides): when the opponent attacks, the attacker is drawn on the right and lunges left.
 local Theme = require("ui.theme")
 local Draw  = require("ui.kit.draw")
 local Card  = require("ui.card")
@@ -13,8 +14,6 @@ local CombatOverlay = {}
 local W, H      = 1280, 800
 local CW, CH    = 200, 274          -- zoom card size (ui/match/zoom.lua)
 local CARD_Y    = 150
-local ATK_CX    = 390
-local DEF_CX    = 890
 local BADGE_Y   = 540
 local BADGE_S   = 96
 local PAD       = 40                -- canvas margin (tag, badges, glow) for the shatter
@@ -113,21 +112,21 @@ local function drawClash(p)
 end
 
 -- Big ATK / DEF badges that grow and count up, with their labels.
-local function drawBadges(rec, p)
+local function drawBadges(rec, p, sides)
     if p.badge <= 0 then return end
     local s = BADGE_S * p.badge
     local labelY = BADGE_Y + BADGE_S / 2 + 12
     local la = math.min(1, p.badge)                  -- labels fade in with the badges
     local a, d = cache.atk, cache.def
     if a then
-        local x = ATK_CX + p.shake
+        local x = sides.atk.cx + p.shake
         Draw.atkBadge(x, BADGE_Y, s, Fx.countValue(a.atk, p.count))
         Draw.pill(x - 60, labelY, 120, 28, a.atkBonus > 0 and ("ATK +" .. a.atkBonus .. " MID") or "ATK", {
             fill = Theme.white, textColor = Theme.grad.atk[2], size = 16, border = 2, shadow = 3, alpha = la,
         })
     end
     if d then
-        local x = DEF_CX + p.shake
+        local x = sides.def.cx + p.shake
         Draw.defBadge(x, BADGE_Y, s * 0.95, Fx.countValue(d.def, p.count), d.defBonus > 0 and d.defBonus or nil)
         Draw.pill(x - 60, labelY, 120, 28, rec.defender.isKeeper and "EFF. DEF" or "DEF", {
             fill = Theme.white, textColor = Theme.grad.def[2], size = 16, border = 2, shadow = 3, alpha = la,
@@ -140,7 +139,8 @@ function CombatOverlay.draw(rec, t)
     if cache.rec ~= rec then
         cache = { rec = rec, atk = Fx.cardView(rec.attacker, Fx.lookup), def = Fx.cardView(rec.defender, Fx.lookup) }
     end
-    local p = Fx.pose(t or 0)
+    local sides = Fx.sides(rec.activePlayer)
+    local p = Fx.pose(t or 0, sides.atk.side)
     local atkFate, defFate = Fx.fates(rec.outcome)
 
     Draw.setColor(Theme.dim)
@@ -152,12 +152,13 @@ function CombatOverlay.draw(rec, t)
         textColor = mine and Theme.button.primary.text or Theme.white, size = 26, border = 3, shadow = 4,
     })
 
-    local ax = ATK_CX + p.atkX + p.shake
-    local dx = DEF_CX + p.defX + p.shake
-    drawSide(cache.atk, ax, p, atkFate)
+    local ax = sides.atk.cx + p.atkX + p.shake
+    local dx = sides.def.cx + p.defX + p.shake
+    -- The defender first, so the lunging attacker is drawn over it.
     drawSide(cache.def, dx, p, defFate)
+    drawSide(cache.atk, ax, p, atkFate)
     drawClash(p)
-    drawBadges(rec, p)
+    drawBadges(rec, p, sides)
 
     if p.result > 0 then
         local st = Fx.result(rec.outcome, rec.damage)

@@ -104,7 +104,8 @@ keeps defense-mode bonuses (a revealed midfielder card still gives +200 DEF to y
 
 **Flipping.** During your summon phase you may flip a face-down or revealed card of yours to
 attack mode. It is free, but not for a card summoned this turn, and at most once per card per
-turn. There is no way back to defense mode.
+turn. There is no way back to defense mode. **Keepers can never flip** — they stay in defense
+mode for the whole match, revealed or not.
 
 ---
 

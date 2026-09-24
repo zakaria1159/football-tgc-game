@@ -273,6 +273,7 @@ function Phases.changeMode(matchState, slotType, slotIndex)
     local activeId = matchState.activePlayer
     local card = Phases._getSlotForPlayer(matchState, activeId, { type = slotType, index = slotIndex })
     if not card then return false, "no card in slot" end
+    if slotType == "keeper" then return false, "keepers can never change mode" end
     if card.mode == "attack" then return false, "card is already in attack mode" end
     if card.summonedThisTurn then return false, "cannot flip a card summoned this turn" end
     if card.modeChanged then return false, "already changed mode this turn" end
@@ -545,6 +546,7 @@ function Phases._goalAttempt(matchState, striker, keeper, attackerSlot, opponent
     if result.outcome == "damage" then
         if keeper then keeper.exhausted = true end
         State.dealDamage(matchState, activeId, result.damage)
+        State.countGoal(matchState, activeId)
         State.log(matchState, T.EventType.LP_DAMAGE,
             { dealer = activeId, damage = result.damage,
               remainingLP = matchState.players[opponentId].lp,
@@ -685,6 +687,7 @@ function Phases._destroyCard(matchState, playerId, slotType, slotIndex)
 
     if card then
         table.insert(player.graveyard, card.definition)
+        State.countCardLost(matchState, playerId)
     end
 end
 

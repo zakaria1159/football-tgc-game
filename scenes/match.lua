@@ -10,6 +10,7 @@ local Prompts            = require("ui.overlay.prompts")
 local PromptPanel        = require("ui.overlay.promptpanel")
 local Reveal             = require("ui.overlay.reveal")
 local MatchEnd           = require("ui.overlay.matchend")
+local HalfTime           = require("ui.overlay.halftime")
 local AI            = require("ai.opponent")
 local Audio         = require("ui.audio")
 local Character     = require("ui.character")
@@ -86,6 +87,12 @@ local halfBanner  = Banner.new(HALF_BANNER)
 local pendingHalf = nil   -- half-time text waiting for the overlays to clear
 local winT        = nil   -- seconds since the match-end screen appeared
 
+-- Half-time screen (ui/overlay/halftime.lua): open after the ribbon while the match is in a
+-- half-time break; KICK OFF plays the SECOND HALF / EXTRA TIME banner.
+local KICK_BANNER = { y = 300, w = 1400, h = 120, size = 72, hold = 1.2, slide = 1500 }
+local kickBanner  = Banner.new(KICK_BANNER)
+local halfTime    = nil   -- HalfTime.new() state while the screen is open
+
 -- Card zoom (hover any card ~0.3s)
 local hover    = Hover.new()
 local zoomKey  = nil
@@ -142,6 +149,8 @@ function Match.enter(matchStore, difficulty)
     halfBanner          = Banner.new(HALF_BANNER)
     pendingHalf         = nil
     winT                = nil
+    kickBanner          = Banner.new(KICK_BANNER)
+    halfTime            = nil
     Confetti.reset()
     hover               = Hover.new()
     zoomKey             = nil
@@ -165,6 +174,8 @@ function Match.update(dt)
     banner:update(dt)
     -- Capped step, like the overlays: a stall must not skip the slide-in.
     halfBanner:update(math.min(dt, 1 / 30))
+    kickBanner:update(math.min(dt, 1 / 30))
+    if halfTime then HalfTime.update(halfTime, dt) end
     TopBar.update(dt, match, mouseX, mouseY)
     BottomBar.update(dt, match, mouseX, mouseY)
 
@@ -187,7 +198,8 @@ function Match.update(dt)
         if evt.type == "midfield_control" and p.player == "player" then
             Match.flash("MIDFIELD CONTROL +1 CARD", "good")
         elseif evt.type == "card_drawn" then
-            Match.spawnDrawAnim(p.player == "player")
+            -- Half-time swap draws: the screen shows the new cards itself.
+            if not halfTime then Match.spawnDrawAnim(p.player == "player") end
         elseif evt.type == "half_end" and not match.winner then
             pendingHalf = MatchEnd.halfText(p.half, match.players.player.halvesWon or 0,
                 match.players.opponent.halvesWon or 0)
@@ -248,6 +260,11 @@ function Match.update(dt)
         halfBanner:show(pendingHalf, "half")
         pendingHalf = nil
     end
+    -- Half-time screen: once the ribbon has played (and the overlays are gone).
+    if match.halfTimeBreak and not match.winner and not halfTime and not pendingHalf
+       and not halfBanner.text and overlaysClear then
+        Match.openHalfTime()
+    end
     if match.winner and overlaysClear then
         local prevWin = winT
         -- Capped step, like the overlays: a stall must not skip the pop-in.
@@ -276,6 +293,7 @@ function Match.update(dt)
     end
     if match.winner then return end
     if store.trapWindow then return end  -- pause all game logic while any trap window is open
+    if match.halfTimeBreak then return end   -- nothing is played until KICK OFF
 
     if match.activePlayer == "player" and match.phase == "draw" then
         store:drawPhase()
@@ -341,9 +359,9 @@ function Match.draw()
     pitchHitboxes = Pitch.draw(match, interactionState, pitchAnims)
     TopBar.draw(match)
     BottomBar.draw(match, { mode = selectedMode, toasts = toasts, hint = Match.hintText(match) })
-    -- The prompt panel / match-end screen covers the hand: no dock magnification poking out.
+    -- The prompt panel / match-end / half-time screen covers the hand: no dock magnification.
     local hmx, hmy = handMouseX, handMouseY
-    if promptWindow or winT then hmx, hmy = nil, nil end
+    if promptWindow or winT or match.halfTimeBreak then hmx, hmy = nil, nil end
     handHit = Hand.draw(match.players.player.hand,
         selectedHandCard and selectedHandCard.id or nil, hmx, hmy)
 
@@ -382,6 +400,7 @@ function Match.draw()
     -- Flash banner
     banner:draw()
     halfBanner:draw()
+    kickBanner:draw()
 
     -- Combat overlay — drawn directly (backdrop must cover full screen)
     if activeCombat then
@@ -418,6 +437,8 @@ function Match.draw()
     -- Full match log (log button / L)
     if debugLogOpen then debugLogScroll = DebugLog.draw(match, debugLogScroll) end
 
+    if halfTime then HalfTime.draw(halfTime, match, mouseX, mouseY) end
+
     if winT then
         MatchEnd.draw(match, winT, mouseX, mouseY)
         Confetti.draw()
@@ -432,7 +453,7 @@ end
 -- The opponent's traps and unrevealed face-down cards are never zoomable (hidden information).
 function Match.hoverTarget(match)
     if activeCombat or activeTrapActiv or scoutReveal or pauseOpen or libraryOpen or debugLogOpen
-       or match.winner or store.coverWindow or store.trapWindow then
+       or match.winner or store.coverWindow or store.trapWindow or match.halfTimeBreak then
         return nil
     end
     local def, i, r = Hand.hit(handHit, mouseX, mouseY)
@@ -459,7 +480,7 @@ end
 
 -- One-line instruction shown between the pitch and the hand.
 function Match.hintText(match)
-    if activeCombat or (store and (store.coverWindow or store.trapWindow)) then return "" end
+    if activeCombat or match.halfTimeBreak or (store and (store.coverWindow or store.trapWindow)) then return "" end
     if match.activePlayer == "opponent" then return "Opponent is thinking..." end
     if match.phase == "summon" then
         if selectedHandCard and selectedHandCard.ability == "SUBSTITUTION" then
@@ -630,6 +651,13 @@ function Match.mousepressed(x, y, button)
     -- Match-end screen: PLAY AGAIN / MAIN MENU
     if winT then return MatchEnd.actionAt(x, y) end
 
+    -- Half-time screen: cards, SWAP, KICK OFF
+    if halfTime then
+        local n = #store.match.players.player.hand
+        Match.halfTimeAction(HalfTime.actionAt(halfTime, n, x, y))
+        return nil
+    end
+
     -- Dismiss scout reveal overlay
     if scoutReveal then
         scoutReveal = nil
@@ -701,6 +729,8 @@ function Match.mousepressed(x, y, button)
         if debugLogOpen then debugLogScroll = 0 end
         return
     end
+    -- Half-time ribbon before the screen opens: nothing to play.
+    if match.halfTimeBreak then return end
 
     if match.activePlayer ~= "player" then return end
 
@@ -931,6 +961,11 @@ function Match.keypressed(key)
 
     if winT then return MatchEnd.keyAction(key) end
 
+    if halfTime then
+        Match.halfTimeAction(HalfTime.keyAction(key))
+        return nil
+    end
+
     if activeTrapActiv then
         if key == "space" or key == "return" then activeTrapActiv = nil end
         return nil
@@ -970,6 +1005,44 @@ function Match.mousemoved(x, y)
     mouseX, mouseY = x, y
     if activeCombat then return end
     handMouseX, handMouseY = x, y
+end
+
+-- ── Half-time screen ──────────────────────────────────────────────────────────
+
+-- The break has started and the ribbon has played: clear any half-finished selection
+-- from the old half and open the screen.
+function Match.openHalfTime()
+    halfTime              = HalfTime.new()
+    selectedHandCard      = nil
+    selectedAttackerSlot  = nil
+    substitutionFreedSlot = nil
+    scoutPending          = false
+    zoomKey               = nil
+end
+
+-- action from HalfTime.actionAt / HalfTime.keyAction.
+function Match.halfTimeAction(action, i)
+    if not halfTime or not action then return end
+    local hand = store.match.players.player.hand
+    if action == "toggle" then
+        HalfTime.toggle(halfTime, i, #hand)
+    elseif action == "swap" then
+        if not HalfTime.canSwap(halfTime) then return end
+        local n, err = store:mulligan(HalfTime.selectedIds(halfTime, hand), "player")
+        if n > 0 then
+            HalfTime.afterSwap(halfTime, #hand, n)
+            Audio.play("card_summon", 0.6)
+        elseif err then
+            Match.flash(err)
+        end
+    elseif action == "kickoff" then
+        local text = HalfTime.labels(store.match.half).banner
+        store:kickOff()
+        halfTime = nil
+        kickBanner:show(text, "info")
+    elseif action == "pause" then
+        openPause()
+    end
 end
 
 -- ── Helpers ───────────────────────────────────────────────────────────────────

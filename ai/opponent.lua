@@ -19,7 +19,9 @@ function AI.planTurn()
 end
 
 -- Returns (done, extraActions, attackErr); attackErr is set when an attack was refused.
+-- During a half-time break the AI does nothing (the store would refuse anyway).
 function AI.executeAction(store, action)
+    if store.match and store.match.halfTimeBreak then return false, nil, "half-time" end
     local difficulty = store.aiDifficulty or "medium"
 
     if action.type == "draw" then
@@ -545,6 +547,31 @@ end
 -- Should the AI's Red Card punish an attacker with this (effective) ATK?
 function AI.wantsRedCard(attackerAtk)
     return (attackerAtk or 0) >= AI.RED_CARD_MIN_ATK
+end
+
+-- ── Half-time swap ──────────────────────────────────────────────────────────
+
+-- Traps and strategies the AI keeps in its half-time hand; the rest go back.
+AI.MULLIGAN_KEEP_SPECIALS = 2
+
+-- Card ids playerId sends back at a half-time break (for State.mulligan): traps and
+-- strategies beyond the first AI.MULLIGAN_KEEP_SPECIALS in hand order, then any keeper
+-- after the first; at most C.MATCH.MULLIGAN_MAX cards.
+function AI.mulliganChoice(match, playerId)
+    local specials, keepers, out = 0, 0, {}
+    local extraKeepers = {}
+    for _, c in ipairs(match.players[playerId].hand) do
+        if c.type == "trap" or c.type == "strategy" then
+            specials = specials + 1
+            if specials > AI.MULLIGAN_KEEP_SPECIALS then out[#out + 1] = c.id end
+        elseif c.type == "keeper" then
+            keepers = keepers + 1
+            if keepers > 1 then extraKeepers[#extraKeepers + 1] = c.id end
+        end
+    end
+    for _, id in ipairs(extraKeepers) do out[#out + 1] = id end
+    while #out > C.MATCH.MULLIGAN_MAX do table.remove(out) end
+    return out
 end
 
 -- ── Plan bookkeeping ────────────────────────────────────────────────────────

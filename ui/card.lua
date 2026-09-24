@@ -265,6 +265,24 @@ function Card.showsFace(pitched)
     return pitched.mode ~= "defense" or pitched.revealed == true
 end
 
+-- True when a pitched card's flip (FLIP UP / TO ATTACK) ribbon may legally appear.
+-- Mirrors engine.phases.Phases.changeMode: keepers and traps can never flip, and it must
+-- be the card owner's own summon phase, with the card in defense mode, not exhausted, not
+-- summoned this turn and not already flipped this turn.
+-- ctx: { isOwnTurn, phase } — isOwnTurn is true when the card's owner is the active player.
+-- Pure (unit-tested).
+function Card.canFlip(pitched, slotType, ctx)
+    ctx = ctx or {}
+    if not pitched then return false end
+    if slotType == "keeper" or slotType == "trap" then return false end
+    if not ctx.isOwnTurn or ctx.phase ~= "summon" then return false end
+    if pitched.mode ~= "defense" then return false end
+    if pitched.exhausted then return false end
+    if pitched.summonedThisTurn then return false end
+    if pitched.modeChanged then return false end
+    return true
+end
+
 function Card.drawPitched(pitched, x, y, opts)
     opts = opts or {}
     local w = opts.w or Theme.cardSize.pitch.w
@@ -298,7 +316,7 @@ function Card.drawPitched(pitched, x, y, opts)
         })
         if opts.canFlip then
             local rh = math.max(12, 20 * L.s)
-            Draw.ribbon(x + w / 2, y + h * 0.40, w * 0.9, rh, "FLIP UP", {
+            Draw.ribbon(x + w / 2, y + h * 0.40, w * 0.9, rh, "TO ATTACK", {
                 fill = Theme.grad.bonus, textColor = Theme.white,
             })
         end

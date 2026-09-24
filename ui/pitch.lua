@@ -125,8 +125,8 @@ local function drawOccupied(pitched, r, owner, slotType, slotIndex, st, pitch, p
     local opts = {
         w = r.w, h = r.h, pitch = pitch, hideHidden = owner == "opponent",
         faceDown = (owner == "opponent") and not Card.showsFace(pitched),
-        canFlip  = owner == "player" and slotType ~= "trap" and st.phase == "summon"
-                   and pitched.mode == "defense" and not pitched.summonedThisTurn and not pitched.modeChanged,
+        canFlip  = owner == "player" and
+                   Card.canFlip(pitched, slotType, { isOwnTurn = st.activePlayer == "player", phase = st.phase }),
         selected = owner == "player" and sa ~= nil and sa.type == slotType and sa.index == slotIndex,
         target   = sa ~= nil and listHas(st.attackTargetSlots, owner, slotType, slotIndex),
     }
@@ -145,6 +145,7 @@ end
 function Pitch.draw(match, st, anims)
     if not match then return {} end
     st = st or {}
+    st.activePlayer = match.activePlayer
     anims = anims or {}
     local hidden, pops = anims.hidden or {}, anims.pop or {}
     local P = Layout.pitch
