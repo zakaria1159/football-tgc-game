@@ -87,7 +87,7 @@ function State.newMatch(playerDeck, opponentDeck)
         half         = 1,
         phase        = "draw",
         activePlayer = "player",
-        halfStarter  = "player",   -- who kicks off this half (the human, every half)
+        halfStarter  = "player",   -- who kicks off this half (State.kickOffSeat)
         summonCount  = 0,
         bonusSummons = 0,          -- extra summons this turn (Metronome)
         coverUsed    = { player = false, opponent = false },
@@ -280,11 +280,19 @@ function State.endHalf(matchState, halfWinner, reason)
     end
 end
 
+-- Who kicks off a half: the player in half 1, the opponent in half 2, a coin toss
+-- (math.random(2)) in Extra Time.
+function State.kickOffSeat(half)
+    if half == 2 then return "opponent" end
+    if half == "extra" then return math.random(2) == 1 and "player" or "opponent" end
+    return "player"
+end
+
 function State._resetHalf(matchState, newHalf)
     matchState.half         = newHalf
     matchState.turn         = 1
     matchState.phase        = "draw"
-    matchState.halfStarter  = "player"
+    matchState.halfStarter  = State.kickOffSeat(newHalf)
     matchState.activePlayer = matchState.halfStarter
     matchState.summonCount  = 0
     matchState.bonusSummons = 0

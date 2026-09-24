@@ -303,6 +303,9 @@ function Match.update(dt)
     end
 
     if match.activePlayer == "opponent" then
+        -- The AI kicks off half 2 (and Extra Time on a lost coin toss): it waits for the
+        -- SECOND HALF / EXTRA TIME banner to clear before playing.
+        if kickBanner.text then return end
         -- A plan left over from the previous half (the AI won it mid-turn) is dropped, so
         -- the AI draws and summons on its first turn of the new half.
         if aiPlan and aiPlanTag ~= AI.planTag(match) then aiPlan = nil end
@@ -1040,7 +1043,7 @@ function Match.halfTimeAction(action, i)
             Match.flash(err)
         end
     elseif action == "kickoff" then
-        local text = HalfTime.labels(store.match.half).banner
+        local text = HalfTime.labels(store.match.half, store.match.halfStarter).banner
         store:kickOff()
         halfTime = nil
         kickBanner:show(text, "info")

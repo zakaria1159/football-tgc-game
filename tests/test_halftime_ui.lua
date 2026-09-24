@@ -15,6 +15,23 @@ T.test("half-time labels: 2nd half vs extra time", function()
     T.eq(l.title, "FULL TIME — EXTRA TIME"); T.eq(l.kick, "KICK OFF — EXTRA TIME"); T.eq(l.banner, "EXTRA TIME")
 end)
 
+T.test("half-time labels: who kicks off the next half", function()
+    local l = HT.labels(2, "opponent")
+    T.eq(l.kickoff, "OPPONENT KICKS OFF"); T.eq(l.banner, "SECOND HALF · OPPONENT KICKS OFF")
+    T.eq(l.kick, "KICK OFF — 2ND HALF", "the button still just kicks off")
+    l = HT.labels(2, "player")
+    T.eq(l.kickoff, "YOU KICK OFF"); T.eq(l.banner, "SECOND HALF · YOU KICK OFF")
+    l = HT.labels("extra", "player")
+    T.eq(l.kickoff, "COIN TOSS: YOU KICK OFF"); T.eq(l.banner, "EXTRA TIME · YOU KICK OFF")
+    l = HT.labels("extra", "opponent")
+    T.eq(l.kickoff, "COIN TOSS: OPPONENT KICKS OFF"); T.eq(l.banner, "EXTRA TIME · OPPONENT KICKS OFF")
+    T.eq(l.kick, "KICK OFF — EXTRA TIME")
+    T.eq(HT.labels(2).kickoff, nil, "no starter, no line")
+    local K, r = HT.KICKOFF, HT.cardRects(5)[1]
+    T.ok(K.y >= r.y + r.h and K.y + K.h <= HT.KICK_BTN.y, "between the hand and the buttons")
+    T.near(K.x + K.w / 2, 640)
+end)
+
 T.test("score and stats rows for the half just played", function()
     local m = { players = { player = { halvesWon = 1 }, opponent = { halvesWon = 0 } },
                 lastHalfStats = { player   = { lp = 2300, damage = 4000, goals = 2, lost = 1 },

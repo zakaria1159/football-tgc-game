@@ -9,7 +9,8 @@ Where a card text or an older document disagrees, this file and the code win.
 - Two players, 40-card decks, 4000 LP per half.
 - Win two halves to win the match. At 1–1 the match goes to **Extra Time**.
 - A half ends when a player reaches 0 LP, or after **14 rounds** (Extra Time: **6 rounds**).
-- The human player kicks off every half, Extra Time included.
+- Kick-off alternates: **you** kick off half 1, **the opponent** kicks off half 2, and a
+  **coin toss** decides who kicks off Extra Time.
 
 ---
 
@@ -17,11 +18,16 @@ Where a card text or an older document disagrees, this file and the code win.
 
 - Each half starts with **4000 LP** for both players.
 - A half ends as soon as a player's LP is **0 or less**; the other player wins it.
-- **Half limit.** A *round* is one turn of each player. If nobody is at 0 LP after
+- **Kick-off.** The player who kicks off a half plays its first turn. **You** kick off half 1,
+  **the opponent** kicks off half 2, and Extra Time's kick-off is a **coin toss** (50/50). The
+  half-time screen shows who kicks off next (for Extra Time, the coin toss result), and so does
+  the SECOND HALF / EXTRA TIME banner. When the opponent kicks off, play resumes with its turn.
+- **Half limit.** A *round* is one turn of each player, starting with the player who kicked
+  off. If nobody is at 0 LP after
   **14 rounds**, the half ends and its winner is:
   1. the player with **more LP**;
   2. if level, the player who dealt **more LP damage this half**;
-  3. if still level, the player who went **second** this half.
+  3. if still level, the player who went **second** this half (the one who did not kick off).
 
 | Result after two halves | Scoreline |
 |---|---|
@@ -40,7 +46,8 @@ Where a card text or an older document disagrees, this file and the code win.
   many new cards are drawn (no keeper guarantee on a swap). **The AI** swaps as soon as the
   break starts, sending back any traps/strategies beyond the first 2 in its hand, then any
   keeper beyond the first, up to 3 cards. **You** pick from the half-time screen (swapping is
-  optional); when you press **Kick Off** the break ends and the new half's first turn begins.
+  optional); when you press **Kick Off** the break ends and the new half's first turn begins
+  (the opponent's turn in half 2, and in Extra Time when it wins the coin toss).
 
 ---
 
@@ -88,8 +95,9 @@ including the keeper slot (see **Open goal**).
 
 ### First turn of a half
 
-The player who **starts** a half (Extra Time included) may **not attack** and may **not play
-Direct Free Kick or Penalty** on their first turn of that half. They may still summon, set
+The player who **kicks off** a half (Extra Time included: you in half 1, the opponent in half 2,
+the coin toss winner in Extra Time) may **not attack** and may **not play Direct Free Kick or
+Penalty** on their first turn of that half. The other player may attack on its own first turn. They may still summon, set
 traps, flip cards and play Scout Report, Time Wasting or Substitution. The attack phase can
 still be entered; the match screen shows a hint instead of attack targets.
 

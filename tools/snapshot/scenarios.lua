@@ -390,7 +390,8 @@ S.scout = {
 
 -- Half time (harness-only: zero the opponent's LP and let the store end the half). The
 -- ribbon plays, then the half-time screen: pick 2 cards (click + key), SWAP, pause over the
--- screen, KICK OFF, the SECOND HALF banner, then the pitch.
+-- screen, KICK OFF, the SECOND HALF · OPPONENT KICKS OFF banner, then the pitch: the AI
+-- kicks off half 2, so its turn plays first ("aiturn"), then it is your turn ("yourturn").
 local function htCard(i)
     local HT = require("ui.overlay.halftime")
     local r = HT.cardRects(#hand())[i]
@@ -420,7 +421,9 @@ S.halftime = {
     { 7.6,  function() love.keypressed("return") end },
     { 8.1,  function(c) c.snap("banner") end },
     { 10.0, function(c) c.snap("pitch") end },
-    { 10.3, function(c) c.quit() end },
+    { 11.5, function(c) c.snap("aiturn") end },
+    { 16.0, function(c) c.snap("yourturn") end },
+    { 16.3, function(c) c.quit() end },
 }
 
 -- Victory (harness-only: you already won a half; win the second), then R to play again.

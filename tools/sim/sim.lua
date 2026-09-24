@@ -11,7 +11,8 @@
 --     cap    safety cap: a half still running after this many rounds counts as a stall
 --     cardmin  a card's win rate is flagged only with at least this many games played
 --
--- Seat "player" is the first seat (it kicks off every half). The AI plays it through a
+-- Seat "player" is the first seat (it kicks off half 1; "opponent" kicks off half 2 and a
+-- coin toss decides Extra Time, as in the game). The AI plays it through a
 -- mirrored view of the match; its trap prompts are answered with the AI's own trap policy.
 -- Half-time breaks are instant: both seats swap cards with AI.mulliganChoice, then kick off.
 -- Acceptance (spec §6): n=1000 with the three decks = 9,000 games; every deck's overall

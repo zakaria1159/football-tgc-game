@@ -717,11 +717,9 @@ function Phases.endTurn(matchState)
         return
     end
 
-    -- Switch active player
-    if activeId == "player" then
-        matchState.activePlayer = "opponent"
-    else
-        matchState.activePlayer = "player"
+    -- Switch active player. A round ends when play returns to the half's starter.
+    matchState.activePlayer = State.other(activeId)
+    if matchState.activePlayer == (matchState.halfStarter or "player") then
         matchState.turn = matchState.turn + 1
         if matchState.half == "extra" then
             matchState.extraTurnsLeft = matchState.extraTurnsLeft - 1
