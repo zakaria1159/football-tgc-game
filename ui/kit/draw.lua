@@ -267,29 +267,36 @@ local function shieldPoints(cx, cy, s)
 end
 
 -- maxW: widest the number may be (circle interiors are narrower than shields).
-local function badgeNumber(value, cx, cy, s, alpha, maxW)
+-- color: number colour (default white, with a drop shadow).
+local function badgeNumber(value, cx, cy, s, alpha, maxW, color)
     local str = tostring(value)
     local size = Draw.fitSize(str, maxW or s * 0.86, s * 0.40, 6, measureDisplay)
     Draw.text(str, cx - s, cy - size * 0.58, s * 2, "center", {
-        size = size, color = Theme.white, shadowY = math.max(1, math.floor(s * 0.05)), alpha = alpha,
+        size = size, color = color or Theme.white,
+        shadowY = color and 0 or math.max(1, math.floor(s * 0.05)), alpha = alpha,
     })
 end
 
--- Red ATK circle. s = diameter.
-function Draw.atkBadge(cx, cy, s, value, alpha)
+-- Red ATK circle. s = diameter. tired: red rim, pale interior, red number.
+function Draw.atkBadge(cx, cy, s, value, alpha, tired)
     alpha = alpha or 1
     local r = s / 2
     local sh = math.max(2, s * 0.08)
     Draw.setColor(Theme.ink, alpha);  love.graphics.circle("fill", cx, cy + sh, r, 24)
-    Draw.setColor(Theme.white, alpha); love.graphics.circle("fill", cx, cy, r, 24)
+    Draw.setColor(tired and Theme.tired.number or Theme.white, alpha); love.graphics.circle("fill", cx, cy, r, 24)
     local b = math.max(2, s * 0.08)
-    Draw.setColor(Theme.grad.atk[2], alpha); love.graphics.circle("fill", cx, cy, r - b, 24)
-    Draw.setColor(Theme.grad.atk[1], alpha); love.graphics.circle("fill", cx, cy - (r - b) * 0.18, (r - b) * 0.82, 24)
-    badgeNumber(value, cx, cy, s, alpha, s * 0.72)
+    if tired then
+        Draw.setColor(Theme.tired.fill, alpha); love.graphics.circle("fill", cx, cy, r - b, 24)
+    else
+        Draw.setColor(Theme.grad.atk[2], alpha); love.graphics.circle("fill", cx, cy, r - b, 24)
+        Draw.setColor(Theme.grad.atk[1], alpha); love.graphics.circle("fill", cx, cy - (r - b) * 0.18, (r - b) * 0.82, 24)
+    end
+    badgeNumber(value, cx, cy, s, alpha, s * 0.72, tired and Theme.tired.number or nil)
 end
 
--- Blue DEF shield. s = width. bonus > 0 adds a green "+N" tag above it.
-function Draw.defBadge(cx, cy, s, value, bonus, alpha)
+-- Blue DEF shield. s = width. bonus > 0 adds a green "+N" tag above it. tired: red rim, pale
+-- interior, red number.
+function Draw.defBadge(cx, cy, s, value, bonus, alpha, tired)
     alpha = alpha or 1
     local sh = math.max(2, s * 0.08)
     local b  = math.max(2, s * 0.08)
@@ -297,10 +304,15 @@ function Draw.defBadge(cx, cy, s, value, bonus, alpha)
     love.graphics.translate(0, sh)
     Draw.setColor(Theme.ink, alpha); love.graphics.polygon("fill", shieldPoints(cx, cy, s + b * 2))
     love.graphics.pop()
-    Draw.setColor(Theme.white, alpha);       love.graphics.polygon("fill", shieldPoints(cx, cy, s + b * 2))
-    Draw.setColor(Theme.grad.def[2], alpha); love.graphics.polygon("fill", shieldPoints(cx, cy, s))
-    Draw.setColor(Theme.grad.def[1], alpha); love.graphics.polygon("fill", shieldPoints(cx, cy - s * 0.08, s * 0.8))
-    badgeNumber(value, cx, cy, s, alpha)
+    Draw.setColor(tired and Theme.tired.number or Theme.white, alpha)
+    love.graphics.polygon("fill", shieldPoints(cx, cy, s + b * 2))
+    if tired then
+        Draw.setColor(Theme.tired.fill, alpha); love.graphics.polygon("fill", shieldPoints(cx, cy, s))
+    else
+        Draw.setColor(Theme.grad.def[2], alpha); love.graphics.polygon("fill", shieldPoints(cx, cy, s))
+        Draw.setColor(Theme.grad.def[1], alpha); love.graphics.polygon("fill", shieldPoints(cx, cy - s * 0.08, s * 0.8))
+    end
+    badgeNumber(value, cx, cy, s, alpha, nil, tired and Theme.tired.number or nil)
     if bonus and bonus > 0 then
         local tw, th = s * 1.1, s * 0.42
         Draw.pill(cx - tw / 2, cy - s * 0.5 - th - 2, tw, th, "+" .. bonus, {

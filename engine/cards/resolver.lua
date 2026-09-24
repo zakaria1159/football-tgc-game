@@ -7,8 +7,9 @@
 --   AI can call them on the simulator's mirrored view.
 --   on* hooks change the match; every ability that fires is logged through R.trigger as an
 --   `ability_triggered` event { player, card, name, keyword, hidden, ... }.
-local C     = require("engine.constants")
-local State = require("engine.state")
+local C       = require("engine.constants")
+local State   = require("engine.state")
+local Stamina = require("engine.stamina")
 
 local A = C.ABILITY
 
@@ -78,6 +79,25 @@ function R.part(amount, pitched, keyword)
              card = pitched and pitched.definition or nil }
 end
 
+-- ── Tired (stamina, spec B1) ─────────────────────────────────────────────────
+
+R.TIRED = "TIRED"   -- stat-part keyword of the Tired malus (not an ability: never logged)
+
+-- Labels of stat-part keywords that aren't abilities.
+R.PART_LABELS = { TIRED = "Tired" }
+
+-- Display name of a stat part's keyword: an ability name, "Tired", or the keyword itself.
+function R.partName(keyword)
+    return R.NAMES[keyword] or R.PART_LABELS[keyword] or keyword
+end
+
+-- Tired malus of a card: −amount and its part while the card is Tired (0 stamina), else 0.
+-- visibleOnly: a face-down, unrevealed card's stamina is hidden information (no malus).
+function R.tiredPart(pitched, amount, visibleOnly)
+    if not Stamina.tired(pitched) or (visibleOnly and R.hidden(pitched)) then return 0, nil end
+    return -amount, R.part(-amount, pitched, R.TIRED)
+end
+
 -- ── Events ────────────────────────────────────────────────────────────────────
 
 -- Logs one ability that fired. ownerId owns `pitched` (the card with the ability).
@@ -98,7 +118,7 @@ end
 -- Logs every keyword part of a stat (parts from R.atkBonus / R.defBonus / keeper DEF).
 function R.logParts(matchState, ownerId, parts, result)
     for _, p in ipairs(parts or {}) do
-        if p.keyword then
+        if p.keyword and p.keyword ~= R.TIRED then   -- Tired is no ability
             R.trigger(matchState, ownerId, p.pitched, p.keyword, { amount = p.amount }, result)
         end
     end
@@ -146,6 +166,7 @@ end
 --   each other Link-up card on the attacker's pitch, any slot).
 --   shots (any slot, strategy shots included): Instinct (+300 while the keeper is
 --   exhausted) and Opportunist (+400 while an enemy defender slot is empty).
+--   any slot: Tired (−C.STAMINA.TIRED_ATK at 0 stamina, R.tiredPart; a TIRED part).
 -- Returns total, parts (keyword parts only).
 function R.atkBonus(pitched, ctx)
     local total, parts = 0, {}
@@ -170,13 +191,15 @@ function R.atkBonus(pitched, ctx)
             add(A.OPPORTUNIST_ATK, R.part(A.OPPORTUNIST_ATK, pitched, "OPPORTUNIST"))
         end
     end
+    add(R.tiredPart(pitched, C.STAMINA.TIRED_ATK, ctx.visibleOnly))   -- Tired (any slot)
     return total, parts
 end
 
 -- DEF bonus of a defending card.
 --   ctx = { slotType, ownPitch, covering, visibleOnly }
 --   defender slot: the midfielder card bonus (R.midfieldDefBonus) and Last man (+300 while
---   it is the only card in its owner's defender slots); covering: Counter-press (+300).
+--   it is the only card in its owner's defender slots); covering: Counter-press (+300);
+--   any slot: Tired (−C.STAMINA.TIRED_DEF at 0 stamina).
 -- Returns total, parts.
 function R.defBonus(pitched, ctx)
     local total, parts = 0, {}
@@ -197,6 +220,7 @@ function R.defBonus(pitched, ctx)
     if ctx.covering and R.has(pitched, "COUNTER_PRESS") then
         add(A.COUNTER_PRESS_DEF, R.part(A.COUNTER_PRESS_DEF, pitched, "COUNTER_PRESS"))
     end
+    add(R.tiredPart(pitched, C.STAMINA.TIRED_DEF, ctx.visibleOnly))   -- Tired (any slot)
     return total, parts
 end
 

@@ -25,10 +25,18 @@ local shatter = { view = nil }      -- canvas + pieces for the destroyed card
 local function drawFace(view, x, y, exhausted)
     Card.drawFace(view.cardDef, x, y, CW, CH, {
         stats     = view.stats,
-        atkBonus  = view.atkBonus > 0 and view.atkBonus or nil,
-        defBonus  = view.defBonus > 0 and view.defBonus or nil,
+        atkBonus  = view.atkBonus ~= 0 and view.atkBonus or nil,
+        defBonus  = view.defBonus ~= 0 and view.defBonus or nil,
         exhausted = exhausted or nil,
+        tired     = view.tired or nil,
     })
+end
+
+-- "ATK +200" / "ATK -300" / "ATK".
+local function signedLabel(prefix, n)
+    if n > 0 then return prefix .. " +" .. n end
+    if n < 0 then return prefix .. " -" .. (-n) end
+    return prefix
 end
 
 -- Render the card once into a canvas and cut it into pieces.
@@ -137,15 +145,16 @@ local function drawBadges(rec, p, sides)
     local a, d = cache.atk, cache.def
     if a then
         local x = sides.atk.cx + p.shake
-        Draw.atkBadge(x, BADGE_Y, s, Fx.countValue(a.atk, p.count))
-        Draw.pill(x - 60, labelY, 120, 28, a.atkBonus > 0 and ("ATK +" .. a.atkBonus) or "ATK", {
+        Draw.atkBadge(x, BADGE_Y, s, Fx.countValue(a.atk, p.count), nil, a.tired)
+        Draw.pill(x - 60, labelY, 120, 28, signedLabel("ATK", a.atkBonus), {
             fill = Theme.white, textColor = Theme.grad.atk[2], size = 16, border = 2, shadow = 3, alpha = la,
         })
         drawTags(a.atkTags, x, la)
     end
     if d then
         local x = sides.def.cx + p.shake
-        Draw.defBadge(x, BADGE_Y, s * 0.95, Fx.countValue(d.def, p.count), d.defBonus > 0 and d.defBonus or nil)
+        Draw.defBadge(x, BADGE_Y, s * 0.95, Fx.countValue(d.def, p.count),
+            d.defBonus > 0 and d.defBonus or nil, nil, d.tired)
         Draw.pill(x - 60, labelY, 120, 28, rec.defender.isKeeper and "EFF. DEF" or "DEF", {
             fill = Theme.white, textColor = Theme.grad.def[2], size = 16, border = 2, shadow = 3, alpha = la,
         })

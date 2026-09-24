@@ -7,6 +7,7 @@ local Layout = require("ui.match.layout")
 local Fonts  = require("ui.fonts")
 local C        = require("engine.constants")
 local Resolver = require("engine.cards.resolver")
+local Stamina  = require("engine.stamina")
 
 local Zoom = {}
 Zoom.W, Zoom.H    = 200, 274   -- Theme.cardSize.zoom
@@ -42,16 +43,23 @@ function Zoom.place(src, infoH, W, H)
     return { cardX = cardX, cardY = cardY, infoX = infoX, infoY = infoY }
 end
 
--- " (Link-up +150, Engine +100)" for a stat line; "" without keyword parts. Pure.
+-- " (Link-up +150, Tired -300)" for a stat line; "" without keyword parts. Pure.
 function Zoom.partsText(parts)
     local out = {}
     for _, p in ipairs(parts or {}) do
         if p.keyword then
-            out[#out + 1] = (Resolver.NAMES[p.keyword] or p.keyword) .. " +" .. tostring(p.amount or 0)
+            local n = p.amount or 0
+            out[#out + 1] = Resolver.partName(p.keyword) .. (n < 0 and (" -" .. (-n)) or (" +" .. n))
         end
     end
     if #out == 0 then return "" end
     return " (" .. table.concat(out, ", ") .. ")"
+end
+
+-- "ATK 2000 + 200 = 2200 (…)" / "DEF 500 - 300 = 200 (Tired -300)". Pure.
+local function statLine(label, base, bonus, parts)
+    local op = bonus >= 0 and (" + " .. bonus) or (" - " .. (-bonus))
+    return label .. base .. op .. " = " .. (base + bonus) .. Zoom.partsText(parts)
 end
 
 -- Extra lines under the ability text: { text, color = ink|bonus|bad|warn }.
@@ -68,14 +76,12 @@ function Zoom.statusLines(cardDef, pitched, pitch, hideHidden)
 
     local st = cardDef.stats or {}
     local atkB, defB, atkParts, defParts = Card.bonuses(pitched, pitch, hideHidden)
-    if atkB > 0 then
-        add("ATK " .. (st.atk or 0) .. " + " .. atkB .. " = " .. ((st.atk or 0) + atkB)
-            .. Zoom.partsText(atkParts), "bonus")
+    if atkB ~= 0 then
+        add(statLine("ATK ", st.atk or 0, atkB, atkParts), atkB > 0 and "bonus" or "bad")
     end
-    if defB > 0 then
+    if defB ~= 0 then
         local label = pitched.slotType == "keeper" and "Effective DEF " or "DEF "
-        add(label .. (st.def or 0) .. " + " .. defB .. " = " .. ((st.def or 0) + defB)
-            .. Zoom.partsText(defParts), "bonus")
+        add(statLine(label, st.def or 0, defB, defParts), defB > 0 and "bonus" or "bad")
     end
     local modeText = "Mode: ATTACK"
     if pitched.mode == "defense" then
@@ -146,9 +152,10 @@ function Zoom.draw(z)
     local atkB, defB = 0, 0
     if z.pitched then atkB, defB = Card.bonuses(z.pitched, z.pitch, z.hideHidden) end
     Card.drawFace(z.cardDef, p.cardX, p.cardY, Zoom.W, Zoom.H, {
-        atkBonus  = atkB > 0 and atkB or nil,
-        defBonus  = defB > 0 and defB or nil,
+        atkBonus  = atkB ~= 0 and atkB or nil,
+        defBonus  = defB ~= 0 and defB or nil,
         exhausted = z.pitched and z.pitched.exhausted or nil,
+        tired     = z.pitched and Stamina.tired(z.pitched) or nil,
     })
     Card.drawInfo(z.cardDef, p.infoX, p.infoY, Zoom.INFO_W, infoH - baseH)
     local y = p.infoY + baseH - 6

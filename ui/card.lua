@@ -8,7 +8,7 @@
 -- New:
 --   Card.layout(w, h)                       pure geometry (unit-tested)
 --   Card.keywordLabel(cardDef)              keyword pill text or nil (pure, unit-tested)
---   Card.drawFace(cardDef, x, y, w, h, opts) opts: stats, atkBonus, defBonus, exhausted, selected, target, alpha,
+--   Card.drawFace(cardDef, x, y, w, h, opts) opts: stats, atkBonus, defBonus, exhausted, selected, target, alpha, tired,
 --                                                   badges = "corners"|"left"|"none"
 --   Card.drawBadges(cardDef, x, y, w, h, opts) badges only; opts: stats, atkBonus, defBonus, alpha,
 --                                                   badges = "corners"|"left"|"none"
@@ -16,9 +16,10 @@
 local Theme  = require("ui.theme")
 local Fonts  = require("ui.fonts")
 local Combat = require("engine.combat")
-local Draw   = require("ui.kit.draw")
-local Icons  = require("ui.kit.icons")
-local Phases = require("engine.phases")
+local Draw    = require("ui.kit.draw")
+local Icons   = require("ui.kit.icons")
+local Phases  = require("engine.phases")
+local Stamina = require("engine.stamina")
 
 local Card = {}
 
@@ -194,9 +195,10 @@ function Card.drawBadges(cardDef, x, y, w, h, opts)
         atkPos, defPos = L.atkLeft, L.defLeft
     end
 
-    Draw.atkBadge(x + atkPos.cx, y + atkPos.cy, atkPos.size, (stats.atk or 0) + (opts.atkBonus or 0), a)
+    Draw.atkBadge(x + atkPos.cx, y + atkPos.cy, atkPos.size, (stats.atk or 0) + (opts.atkBonus or 0), a,
+        opts.tired)
     Draw.defBadge(x + defPos.cx, y + defPos.cy, defPos.size, (stats.def or 0) + (opts.defBonus or 0),
-        opts.defBonus, a)
+        opts.defBonus, a, opts.tired)
     if opts.atkBonus and opts.atkBonus > 0 then
         Draw.bonusTag(x + atkPos.cx, y + atkPos.cy - atkPos.size / 2 - 2, atkPos.size, opts.atkBonus, a)
     end
@@ -275,31 +277,32 @@ end
 
 -- ── Public API (existing contract) ────────────────────────────────────────────
 
--- Bonuses shown on a pitched card's badges: its always-on bonuses. Pure (unit-tested).
---   striker  → +ATK: midfielder card bonus (Engine / Overlap) and Link-up
---   defender → +DEF: midfielder card bonus (Engine) and Last man
---   keeper   → effective DEF minus base DEF (line, Bolt, midfielder, Safe hands)
+-- Bonuses shown on a pitched card's badges: its always-on bonuses and maluses. Pure
+-- (unit-tested).
+--   ATK: Combat.attackStat for its slot minus base ATK (striker slot: the midfielder card
+--        bonus with Engine / Overlap, and Link-up; any slot: Tired −300)
+--   DEF: keeper slot → effective DEF minus base DEF (line, Bolt, midfielder, Safe hands);
+--        other slots → Combat.defendStat minus base DEF (defender slot: the midfielder card
+--        bonus with Engine, and Last man; any slot: Tired −300)
 -- Situational bonuses (Instinct, Opportunist, Counter-press) are not shown here.
 -- hideHidden: the card is the opponent's; bonuses from their face-down, unrevealed cards
 -- (a hidden midfielder's bonus, a hidden Link-up or Bolt card) are hidden information.
--- Returns atkBonus, defBonus, atkParts, defParts.
+-- Returns atkBonus, defBonus (negative when Tired outweighs the bonuses), atkParts, defParts.
 function Card.bonuses(pitched, pitch, hideHidden)
     if not pitch then return 0, 0, {}, {} end
-    local st    = pitched.slotType
+    local st = pitched.slotType
+    if st ~= "striker" and st ~= "defender" and st ~= "midfielder" and st ~= "keeper" then
+        return 0, 0, {}, {}
+    end
     local stats = pitched.definition.stats or {}
-    if st == "striker" then
-        local atk, parts = Combat.attackStat(pitched, "striker", pitch, nil, nil, hideHidden)
-        return atk - (stats.atk or 0), 0, parts, {}
-    end
-    if st == "defender" then
-        local def, parts = Combat.defendStat(pitched, "defender", pitch, false, hideHidden)
-        return 0, def - (stats.def or 0), {}, parts
-    end
+    local atk, atkParts = Combat.attackStat(pitched, st, pitch, nil, nil, hideHidden)
+    local def, defParts
     if st == "keeper" then
-        local def, parts = Combat.keeperDef(pitched, pitch, false, hideHidden)
-        return 0, def - (stats.def or 0), {}, parts
+        def, defParts = Combat.keeperDef(pitched, pitch, false, hideHidden)
+    else
+        def, defParts = Combat.defendStat(pitched, st, pitch, false, hideHidden)
     end
-    return 0, 0, {}, {}
+    return atk - (stats.atk or 0), def - (stats.def or 0), atkParts, defParts
 end
 
 -- Keyword pill text for a field card ("LINK-UP"), or nil (traps, strategies, no keyword).
@@ -345,9 +348,10 @@ function Card.drawPitched(pitched, x, y, opts)
     local atkBonus, defBonus = Card.bonuses(pitched, opts.pitch, opts.hideHidden)
 
     Card.drawFace(pitched.definition, x, y, w, h, {
-        atkBonus = atkBonus > 0 and atkBonus or nil,
-        defBonus = defBonus > 0 and defBonus or nil,
+        atkBonus = atkBonus ~= 0 and atkBonus or nil,
+        defBonus = defBonus ~= 0 and defBonus or nil,
         exhausted = pitched.exhausted, selected = opts.selected, target = opts.target,
+        tired = Stamina.tired(pitched),
     })
 
     local L = Card.layout(w, h)

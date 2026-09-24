@@ -3,6 +3,7 @@ local C      = require("engine.constants")
 local Phases = require("engine.phases")
 local State  = require("engine.state")
 local Resolver = require("engine.cards.resolver")
+local Stamina  = require("engine.stamina")
 
 local AI = {}
 
@@ -514,9 +515,10 @@ function AI._threatAgainst(match, slotType)
     return best
 end
 
--- Weak: no winning attack this turn. A striker-slot card is never weak here (it shoots or
--- clears defenders).
+-- Weak: Tired (any slot), or no winning attack this turn. A striker-slot card that isn't
+-- tired is never weak (it shoots or clears defenders).
 function AI._weak(match, card, slotType)
+    if Stamina.tired(card) then return true end
     if slotType == "striker" then return false end
     return not AI._winsNow(match, card, slotType)
 end

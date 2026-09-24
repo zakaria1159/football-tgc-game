@@ -48,7 +48,11 @@ function Combat.keeperDef(keeper, pitch, penaltyMode, visibleOnly)
     local parts = {}
     local own, ownPart = Resolver.keeperOwnBonus(keeper)
     if ownPart then parts[#parts + 1] = ownPart end
-    local base = Combat.getStat(keeper, "defend") + own
+    -- Tired: a non-keeper card in the keeper slot at 0 stamina (keepers never tire). It is the
+    -- card's own DEF, so it also counts against a Penalty.
+    local tired, tiredPart = Resolver.tiredPart(keeper, C.STAMINA.TIRED_DEF, visibleOnly)
+    if tiredPart then parts[#parts + 1] = tiredPart end
+    local base = Combat.getStat(keeper, "defend") + own + tired
 
     local line, lineParts = 0, {}
     for i = 1, C.PITCH.MAX_DEFENDERS do
