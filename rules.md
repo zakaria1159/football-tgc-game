@@ -86,12 +86,26 @@ including the keeper slot (see **Open goal**).
 1. **Draw** — 1 card (see above), then the **midfield control** card if you control midfield.
 2. **Summon** — place up to **2** field cards (+1 with **Metronome**) in attack or defense mode
    (1 if the opponent played Time Wasting); set trap cards (free, at most 2 on the field); flip
-   your face-down cards to attack mode (free); play Substitution.
+   your face-down cards to attack mode (free); play Substitution; bring on a new keeper
+   (**keeper substitution**, below).
 3. **Attack** — each of your cards may attack **once**, except a card summoned this turn: it
    attacks from your next turn (**Pace** excepted; this also applies to the Direct Free Kick and
    Penalty shooter). You may play **1** strategy card (Direct Free Kick, Penalty, Scout Report,
    Time Wasting).
 4. **End** — your exhausted cards recover.
+
+### Keeper substitution
+
+During your summon phase you may play a **keeper card** from your hand onto your **occupied**
+keeper slot. It **costs one summon** (it counts toward the summon limit) and is allowed on any
+turn, the opening turn of a half included — not during the half-time break, and not once the
+summon limit is reached (it is never a free Substitution summon).
+
+- The keeper that was on the pitch goes back to your **hand** (not the deck). It comes back as a
+  fresh card: its per-half counters (e.g. **Safe hands** saves) and flags are gone.
+- The new keeper enters in the mode you choose, like any keeper summon; keepers never flip
+  afterwards. Its own abilities apply at once.
+- On the match screen, select a keeper card in your hand: your GK slot glows; click it.
 
 ### First turn of a half
 
@@ -110,7 +124,8 @@ still be entered; the match screen shows a hint instead of attack targets.
 - Visible to both players.
 
 **Defense mode** (face down)
-- Cannot attack and cannot cover.
+- Cannot attack and cannot cover (exceptions: an **Intercept** defender covering an empty
+  defender slot, and the **Off the line** keeper).
 - Hidden from the opponent.
 - When it is destroyed, its owner loses **no LP**; an attacker that loses against it pays the
   difference (the **bluff**).
@@ -191,7 +206,10 @@ When you attack an **empty defender or midfielder slot**, the defending player m
 (once per turn):
 - an empty **defender** slot can be covered by their **midfielder**;
 - an empty **midfielder** slot can be covered by any of their **defenders**;
-- the coverer must be in attack mode, not exhausted, and not blocked by an earlier cover.
+- the coverer must be in attack mode, not exhausted, and not blocked by an earlier cover — except
+  that an **Intercept** defender covering an empty defender slot, and the **Off the line**
+  keeper, may cover in defense mode (face-down or revealed). A face-down coverer is **revealed**
+  (face up, still in defense mode) and fights with its DEF.
 - **Intercept**, **Sweeper** and **Off the line** add cover options; a **Beat the man** attack
   can't be covered.
 
@@ -386,7 +404,7 @@ hovering or zooming the card shows the rules text. Traps and strategy cards have
 | The Stopper | **Last man** | **+300 DEF** while it is your only card in the defender slots. |
 | Catenaccio Anchor | **Bolt** | Counts **+500** (instead of +300) toward your keeper's effective DEF. |
 | The Destroyer | **Hard tackle** | A card that attacks The Destroyer and is not destroyed (it won, survived a tie with Immovable, or Offside cancelled the attack) can't act on its owner's next turn. |
-| Pressing Back | **Intercept** | May also cover an empty **defender** slot (normal cover rules). |
+| Pressing Back | **Intercept** | May also cover an empty **defender** slot, even in defense mode: a face-down Pressing Back is revealed (stays in defense mode) and fights with its DEF. Last-ditch tackle and cover-lock rules apply as usual. |
 | Ball-Playing Defender | **Build-up** | When it wins a fight (destroys the other card and survives), you draw 1 card. |
 | Libero | **Sweeper** | May cover an empty defender or midfielder slot; covering doesn't stop it acting next turn. |
 

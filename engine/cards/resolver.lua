@@ -377,6 +377,16 @@ function R.canCoverSlot(pitched, fromSlotType, emptySlotType)
     return false
 end
 
+-- Mode exception: may this card cover emptySlotType from fromSlotType while in defense mode
+-- (face-down or revealed)? Intercept covering an empty defender slot, and the Off the line
+-- keeper. Every other coverer needs attack mode. A face-down coverer is revealed.
+function R.coversInDefense(pitched, fromSlotType, emptySlotType)
+    local kw = R.keyword(pitched)
+    if kw == "INTERCEPT" then return fromSlotType == "defender" and emptySlotType == "defender" end
+    if kw == "OFF_THE_LINE" then return fromSlotType == "keeper" and emptySlotType == "defender" end
+    return false
+end
+
 -- Covering stops the coverer acting on its owner's next turn, except Sweeper and Off the line.
 function R.coverLocks(pitched)
     return not (R.has(pitched, "SWEEPER") or R.has(pitched, "OFF_THE_LINE"))

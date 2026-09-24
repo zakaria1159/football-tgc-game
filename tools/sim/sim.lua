@@ -157,7 +157,7 @@ local S = {
     extraTime = 0, twoNil = 0,
     rounds = {}, roundsN = {},
     mcTriggers = 0, mcGames = 0, mcLeaderWins = 0,
-    openGoals = 0, trapSet = {}, trapAct = {},
+    openGoals = 0, keeperSwaps = 0, trapSet = {}, trapAct = {},
     kw = {}, cardGames = {}, cardWins = {},
 }
 
@@ -199,6 +199,8 @@ local function record(m, stall, deckOf)
             S.mcTriggers = S.mcTriggers + 1
         elseif e.type == "lp_damage" and p.source == "open_goal" then
             S.openGoals = S.openGoals + 1
+        elseif e.type == "card_played" and p.action == "keeper_swap" then
+            S.keeperSwaps = S.keeperSwaps + 1
         elseif e.type == "card_played" and p.slot == "trap" then
             inc(S.trapSet, p.card)
         elseif e.type == "trap_activated" then
@@ -272,6 +274,7 @@ print(string.format("avg rounds: half 1=%.2f  half 2=%.2f  extra time=%.2f",
 print(string.format("midfield control: %.2f extra draws/match; the side with more control won %.1f%% of %d games",
     avg(S.mcTriggers, S.games), pct(S.mcLeaderWins, S.mcGames), S.mcGames))
 print(string.format("open goals: %.2f/match", avg(S.openGoals, S.games)))
+print(string.format("keeper swaps: %d (%.3f/match)", S.keeperSwaps, avg(S.keeperSwaps, S.games)))
 print("deck win rates:")
 local deckRate = {}
 for _, d in ipairs(deckNames) do

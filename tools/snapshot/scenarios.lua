@@ -580,4 +580,26 @@ S.abilities = {
     { 7.8, function(c) c.quit() end },
 }
 
+-- Keeper substitution: Reliable Hands in goal (harness-only), The Wall in hand. Select it
+-- (your GK glows, hint), click the GK: The Wall comes on, Reliable Hands goes to hand.
+local swapGk
+S.keeperswap = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, kickOff },
+    { 1.5, function()
+        local st = store()
+        st.match.players.player.pitch.keeper = pitched("keeper-reliable-hands", "keeper", "defense")
+        swapGk = defById("keeper-the-wall")
+        table.insert(hand(), swapGk)
+    end },
+    { 1.8, function() move(handPoint(swapGk)) end },
+    { 2.0, function() press(handPoint(swapGk)) end },
+    { 2.2, function() move(640, 300) end },
+    { 2.6, function(c) c.snap("before") end },
+    { 2.7, function() click(center(Layout.slot("player", "keeper", 0))) end },
+    { 2.8, function() move(640, 300) end },
+    { 3.6, function(c) c.snap("after") end },
+    { 3.8, function(c) c.quit() end },
+}
+
 return S

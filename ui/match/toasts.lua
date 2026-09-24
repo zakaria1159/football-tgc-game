@@ -98,6 +98,10 @@ function Toasts.describe(entry)
     end
     if t == "card_played" then
         if p.action == "mode_change" then return who .. " flipped a card face-up", "info" end
+        if p.action == "keeper_swap" then
+            if mine then return "You brought on " .. tostring(p.name or "a keeper") .. " in goal", "info" end
+            return "Opp changed keeper", "info"
+        end
         if p.slot == "trap" then return who .. " set a trap", "trap" end
         return who .. " summoned a " .. string.upper(tostring(p.slot or "card")), "info"
     end

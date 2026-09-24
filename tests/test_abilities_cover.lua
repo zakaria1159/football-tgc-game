@@ -99,3 +99,48 @@ T.test("Off the line: other keepers never cover", function()
     local r = s:declareAttack(H.slot("striker", 1), H.slot("defender", 1))
     T.eq(r.outcome, "save")
 end)
+
+-- ── Intercept works face-down ─────────────────────────────────────────────────
+
+T.test("Intercept face-down: offered as a coverer, covers with its DEF and is revealed", function()
+    local m = H.match()
+    H.place(m, "player", "striker", 1, H.card("striker", 1700, 500))
+    local pb = H.place(m, "opponent", "defender", 2, H.kw("INTERCEPT", "defender", 950, 1800), "defense")
+    local s = H.store(m)
+    local r = s:declareAttack(H.slot("striker", 1), H.slot("defender", 1))
+    T.eq(r.outcome, "cover_needed")
+    T.eq(#r.eligibleCoverers, 1); T.eq(r.eligibleCoverers[1].index, 2)
+    r = s:resolveCover(H.slot("defender", 2))
+    T.eq(r.outcome, "attacker_exhausted")                  -- 1700 < 1800 DEF
+    T.eq(pb.mode, "defense"); T.eq(pb.revealed, true)
+    T.eq(pb.cannotActNextTurn, true)
+    local t = H.triggers(m)
+    T.eq(#t, 1); T.eq(t[1].keyword, "INTERCEPT")
+end)
+
+T.test("Intercept face-down: a lost cover is a last-ditch tackle (only exhausted)", function()
+    local m = H.match()
+    H.place(m, "player", "striker", 1, H.card("striker", 2000, 500))
+    local pb = H.place(m, "opponent", "defender", 2, H.kw("INTERCEPT", "defender", 950, 1800), "defense")
+    pb.revealed = true
+    local s = H.store(m)
+    T.eq(s:declareAttack(H.slot("striker", 1), H.slot("defender", 1)).outcome, "cover_needed")
+    local r = s:resolveCover(H.slot("defender", 2))
+    T.eq(r.outcome, "tackled")
+    T.eq(m.players.opponent.pitch.defenders[2], pb)
+    T.eq(pb.exhausted, true); T.eq(pb.mode, "defense")
+end)
+
+T.test("Intercept face-down: plain face-down defenders still can't cover; Intercept face-down can't cover the midfielder slot", function()
+    local m = H.match()
+    H.place(m, "player", "striker", 1, H.card("striker", 1700, 500))
+    H.place(m, "opponent", "defender", 2, H.card("defender", 950, 1800), "defense")
+    local r = H.store(m):declareAttack(H.slot("striker", 1), H.slot("defender", 1))
+    T.ok(r.outcome ~= "cover_needed")
+    local Phases = require("engine.phases")
+    local pitch = { defenders = {}, strikers = {}, traps = {} }
+    pitch.defenders[1] = require("engine.state").newPitchedCard(
+        H.kw("INTERCEPT", "defender", 950, 1800), "defender", "defense")
+    T.eq(#Phases._eligibleCoverers(pitch, H.slot("midfielder")), 0)
+    T.eq(#Phases._eligibleCoverers(pitch, H.slot("defender", 2)), 1)
+end)

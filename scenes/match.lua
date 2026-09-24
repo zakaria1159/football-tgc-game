@@ -494,6 +494,8 @@ function Match.hintText(match)
             return "SUBSTITUTION: select a card and place it in the freed slot (free)"
         elseif selectedHandCard and selectedHandCard.type == "trap" then
             return "Click a TRAP slot by your goal to set it face-down  ·  ESC to cancel"
+        elseif selectedHandCard and Phases.canKeeperSwap(match, selectedHandCard) then
+            return "Click your GK to bring this keeper on (uses a summon)"
         elseif selectedHandCard then
             return "Mode: " .. selectedMode:upper() .. "  ·  Click an empty slot to place  ·  ESC to cancel"
         end
@@ -567,9 +569,11 @@ function Match.getHighlightedSlots(match)
         return slots
     end
 
-    -- Field card → only empty slots (summon phase only)
+    -- Field card → only empty slots (summon phase only); a keeper card also targets your
+    -- occupied GK slot (keeper substitution, Phases.canKeeperSwap).
     if match.phase ~= "summon" then return {} end
-    if not pitch.keeper then
+    if not pitch.keeper
+       or (match.activePlayer == "player" and Phases.canKeeperSwap(match, selectedHandCard)) then
         table.insert(slots, { slotType="keeper", slotIndex=0, owner="player" })
     end
     if not pitch.midfielder then

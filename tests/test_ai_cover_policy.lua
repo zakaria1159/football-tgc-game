@@ -21,14 +21,14 @@ local function summonMatch()
     return m
 end
 
-T.test("AI cover specialists: Libero (Sweeper) and Pressing Back (Intercept) go in face-up", function()
+T.test("AI cover specialists: Libero (Sweeper) goes in face-up, Pressing Back (Intercept) face-down", function()
     local m = summonMatch()
     local sweeper   = H.give(m, "opponent", H.kw("SWEEPER", "defender", 1200, 1900))
     local intercept = H.give(m, "opponent", H.kw("INTERCEPT", "defender", 1300, 1800))
     local acts = AI._planSummons(m)
     local a, b = summonOf(acts, sweeper), summonOf(acts, intercept)
     T.eq(a and a.slotType, "defender"); T.eq(a and a.mode, "attack")
-    T.eq(b and b.slotType, "defender"); T.eq(b and b.mode, "attack")
+    T.eq(b and b.slotType, "defender"); T.eq(b and b.mode, "defense")
 end)
 
 T.test("AI cover specialists: a plain defender still goes in face-down", function()
@@ -52,9 +52,9 @@ T.test("AI cover: a midfielder goes in face-up when a defender slot is open and 
     T.eq(a and a.mode, "defense")
 end)
 
-T.test("AI flip: flips a revealed Intercept defender to cover an open defender slot", function()
+T.test("AI flip: flips a revealed Sweeper defender to cover an open defender slot", function()
     local m = summonMatch()
-    local d = H.place(m, "opponent", "defender", 1, H.kw("INTERCEPT", "defender", 1300, 1800), "defense")
+    local d = H.place(m, "opponent", "defender", 1, H.kw("SWEEPER", "defender", 1300, 1800), "defense")
     d.revealed = true
     local f = flips(AI._planSummons(m))
     T.eq(#f, 1); T.eq(f[1].slotType, "defender"); T.eq(f[1].slotIndex, 1)
@@ -100,7 +100,7 @@ end)
 
 T.test("AI flip: a refused flip is not planned again this turn", function()
     local m = summonMatch()
-    local d = H.place(m, "opponent", "defender", 1, H.kw("INTERCEPT", "defender", 1300, 1800), "defense")
+    local d = H.place(m, "opponent", "defender", 1, H.kw("SWEEPER", "defender", 1300, 1800), "defense")
     d.revealed = true
     local f = flips(AI._planSummons(m))
     T.eq(#f, 1)
@@ -134,4 +134,43 @@ T.test("AI Through ball: no one-on-one that the keeper saves", function()
     m.players.opponent.pitch.throughBallUsed = true
     a = AI._planNextAttack(m, "medium")
     T.eq(a and a.defenderSlot.type, "defender", "Through ball already used this turn")
+end)
+
+T.test("AI Intercept face-down: covers with a face-down Pressing Back that wins", function()
+    local m = H.match()
+    H.place(m, "player", "striker", 1, H.card("striker", 1700, 500))
+    H.place(m, "opponent", "defender", 2, H.kw("INTERCEPT", "defender", 950, 1800), "defense")
+    local s = H.store(m)
+    s.aiDifficulty = "medium"
+    local r = s:declareAttack(H.slot("striker", 1), H.slot("defender", 1))
+    T.eq(r.outcome, "cover_needed")
+    s.coverWindow = s.coverWindow or { attackerSlot = r.attackerSlot, emptySlot = r.emptySlot,
+                                       eligibleCoverers = r.eligibleCoverers }
+    local c = AI.decideCover(s)
+    T.eq(c and c.type, "defender"); T.eq(c and c.index, 2)
+end)
+
+T.test("AI Intercept face-down: no Offside for an attack a face-down Pressing Back can cover", function()
+    local m = H.match({ active = "player" })
+    H.place(m, "player", "striker", 1, H.card("striker", 1700, 500))
+    H.place(m, "opponent", "defender", 2, H.kw("INTERCEPT", "defender", 950, 1800), "defense")
+    T.eq(AI.wantsOffside(m, "opponent", H.slot("striker", 1), H.slot("defender", 1)), false)
+    m.players.opponent.pitch.defenders[2].mode = "defense"
+    m.players.opponent.pitch.defenders[2].definition = H.card("defender", 950, 1800)
+    T.eq(AI.wantsOffside(m, "opponent", H.slot("striker", 1), H.slot("defender", 1)), true)
+end)
+
+T.test("AI Intercept face-down: a face-down Pressing Back counts as the defender-slot coverer", function()
+    local m = summonMatch()
+    H.place(m, "opponent", "defender", 1, H.kw("INTERCEPT", "defender", 1300, 1800), "defense")
+    local mid = H.give(m, "opponent", H.card("midfielder", 1200, 1600))
+    local a = summonOf(AI._planSummons(m), mid)
+    T.eq(a and a.mode, "defense", "no need to go face-up to cover")
+end)
+
+T.test("AI Intercept face-down: a revealed Pressing Back isn't flipped just to cover", function()
+    local m = summonMatch()
+    local d = H.place(m, "opponent", "defender", 1, H.kw("INTERCEPT", "defender", 1300, 1800), "defense")
+    d.revealed = true
+    T.eq(#flips(AI._planSummons(m)), 0)
 end)

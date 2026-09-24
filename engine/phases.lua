@@ -91,9 +91,24 @@ function Phases.summon(matchState, cardId, slotType, slotIndex, mode, freeSummon
     pitched.summonedThisTurn = true   -- can't flip this turn; attacks next turn unless Pace (D1)
 
     if slotType == "keeper" then
-        if player.pitch.keeper then
-            table.insert(player.hand, cardDef)
-            return false, "keeper slot occupied"
+        local old = player.pitch.keeper
+        if old then
+            -- Keeper substitution: a keeper card may replace the pitched keeper (a normal
+            -- summon, never a free one). The old keeper goes back to hand as a plain card
+            -- definition, so its per-half counters and flags are gone.
+            if freeSummon or cardDef.type ~= "keeper" then
+                table.insert(player.hand, cardDef)
+                return false, "keeper slot occupied"
+            end
+            player.pitch.keeper = pitched
+            table.insert(player.hand, old.definition)
+            matchState.summonCount = matchState.summonCount + 1
+            State.log(matchState, T.EventType.CARD_PLAYED,
+                { player = matchState.activePlayer, card = cardId, slot = "keeper", index = 0,
+                  mode = mode, action = "keeper_swap", name = cardDef.name,
+                  replaced = old.definition.id, replacedName = old.definition.name })
+            Resolver.onSummon(matchState, matchState.activePlayer, pitched)
+            return true
         end
         player.pitch.keeper = pitched
     elseif slotType == "defender" then
@@ -135,6 +150,19 @@ function Phases.summon(matchState, cardId, slotType, slotIndex, mode, freeSummon
           index = slotIndex, mode = mode })
     Resolver.onSummon(matchState, matchState.activePlayer, pitched)   -- Press
     return true
+end
+
+-- May the active player bring cardDef on as a keeper substitution now? A keeper card from
+-- hand onto an occupied keeper slot, in the summon phase, outside a half-time break, with a
+-- summon left (it costs one, like Phases.summon).
+function Phases.canKeeperSwap(matchState, cardDef)
+    if not cardDef or cardDef.type ~= "keeper" then return false end
+    if matchState.halfTimeBreak or matchState.phase ~= "summon" then return false end
+    local player = State.activePlayerState(matchState)
+    if not player.pitch.keeper then return false end
+    local limit = (player.nextTurnSummonLimit or C.MATCH.MAX_SUMMONS_PER_TURN)
+                + (matchState.bonusSummons or 0)
+    return matchState.summonCount < limit
 end
 
 -- ─── STRATEGY CARDS ──────────────────────────────────────────────────────────
@@ -411,7 +439,8 @@ function Phases.resolveCover(matchState, attackerSlot, originalEmptySlot, covere
         local coverer = Phases._getSlotForPlayer(matchState, opponentId, covererSlot)
         if not coverer then return nil, "no coverer" end
 
-        -- Coverers are attack-mode cards, except an Off the line keeper (it gets revealed)
+        -- Coverers are attack-mode cards, except an Intercept defender or an Off the line
+        -- keeper in defense mode: it gets revealed (face-up) and stays in defense mode.
         if coverer.mode == "defense" then coverer.revealed = true end
 
         -- A covering card cannot act next turn — not a Sweeper or an Off the line keeper
@@ -526,7 +555,8 @@ end
 -- (midfielder, defenders, keeper). Every coverer must be ready (not exhausted, not locked).
 --   Empty defender slot: the midfielder; an Intercept or Sweeper defender; an Off the line keeper.
 --   Empty midfielder slot: any defender.
--- Field coverers must be in attack mode; an Off the line keeper covers in either mode.
+-- Field coverers must be in attack mode, except an Intercept defender covering an empty
+-- defender slot (Resolver.coversInDefense); an Off the line keeper covers in either mode.
 function Phases._eligibleCoverers(pitch, emptySlot)
     local coverers = {}
     local et = emptySlot.type
@@ -545,7 +575,7 @@ function Phases._eligibleCoverers(pitch, emptySlot)
     end
     for i = 1, C.PITCH.MAX_DEFENDERS do
         local d = pitch.defenders[i]
-        if ready(d) and d.mode == "attack"
+        if ready(d) and (d.mode == "attack" or Resolver.coversInDefense(d, "defender", et))
            and (et == "midfielder" or Resolver.canCoverSlot(d, "defender", et)) then
             add(d, "defender", i)
         end

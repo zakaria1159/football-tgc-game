@@ -16,7 +16,7 @@ return {
       abilityText="May cover an empty defender or midfielder slot. Covering doesn't stop it acting on your next turn." },
     { id="def-pressing-back",      name="Pressing Back",        type="defender",   rarity="common",   stats={ atk=950,  def=1800 },
       keyword="INTERCEPT",   keywordName="Intercept",
-      abilityText="May also cover an empty defender slot (normal cover rules)." },
+      abilityText="May also cover an empty defender slot, even face-down (it is revealed and fights with its DEF)." },
     { id="def-catenaccio-anchor",  name="Catenaccio Anchor",   type="defender",   rarity="uncommon", stats={ atk=750,  def=1950 },
       keyword="BOLT",        keywordName="Bolt",
       abilityText="Counts +500 (instead of +300) toward your keeper's effective DEF." },

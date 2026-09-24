@@ -257,9 +257,10 @@ function AI._planSummons(match)
                 elseif slot.slotType == "midfielder" then used.midfielder              = true
                 elseif slot.slotType == "defender"   then used.defenders[slot.slotIndex] = true
                 end
-                if mode == "attack" and (slot.slotType == "midfielder"
-                   or (slot.slotType == "defender" and AI._coverSpecialist(cardDef))) then
-                    used.coverer = true
+                if (mode == "attack" and (slot.slotType == "midfielder"
+                   or (slot.slotType == "defender" and AI._coverSpecialist(cardDef))))
+                   or (slot.slotType == "defender" and cardDef.keyword == "INTERCEPT") then
+                    used.coverer = true   -- Intercept covers face-down too
                 end
                 summonLeft = summonLeft - 1
             end
@@ -268,14 +269,67 @@ function AI._planSummons(match)
         ::continue::
     end
 
+    -- Keeper substitution with a summon to spare, after the normal priorities.
+    if summonLeft > 0 and pitch.keeper then
+        local swap = AI._planKeeperSwap(match)
+        if swap then
+            table.insert(actions, swap)
+            summonLeft = summonLeft - 1
+        end
+    end
+
     -- Flips after the summons, so they see the slots this turn's summons fill.
     for _, f in ipairs(AI._planFlips(match, used)) do table.insert(actions, f) end
 
     return actions
 end
 
+-- Keeper substitution heuristic. A keeper's value for this match:
+--   base DEF, +FORTRESS_VS_PENALTY when it has Fortress and the enemy has played a Penalty
+--   this match (from the log: the only Penalty evidence the AI can see), and for the
+--   keeper in goal +SAFE_HANDS_SAVE per Safe hands save it already made (lost on a swap).
+-- Swap for the best keeper in hand when it beats the current one by KEEPER_SWAP_MARGIN.
+AI.KEEPER_SWAP_MARGIN   = 100
+AI.FORTRESS_VS_PENALTY  = 200
+AI.SAFE_HANDS_SAVE      = 100
+
+function AI._keeperValue(def, enemyPenalties, saves)
+    local v = def.stats and def.stats.def or 0
+    if def.keyword == "FORTRESS" and enemyPenalties > 0 then v = v + AI.FORTRESS_VS_PENALTY end
+    if def.keyword == "SAFE_HANDS" then v = v + AI.SAFE_HANDS_SAVE * (saves or 0) end
+    return v
+end
+
+-- The keeper-swap summon action, or nil. Only when a keeper is in goal and the engine would
+-- accept it (Phases.canKeeperSwap).
+function AI._planKeeperSwap(match)
+    local player = match.players.opponent
+    local cur    = player.pitch.keeper
+    if not cur then return nil end
+    local enemyPenalties = 0
+    for _, e in ipairs(match.log or {}) do
+        local p = e.payload
+        if e.type == "strategy_played" and p and p.ability == "PENALTY"
+           and p.player ~= match.activePlayer then
+            enemyPenalties = enemyPenalties + 1
+        end
+    end
+    local best, bestV
+    for _, c in ipairs(player.hand) do
+        if c.type == "keeper" then
+            local v = AI._keeperValue(c, enemyPenalties)
+            if not best or v > bestV then best, bestV = c, v end
+        end
+    end
+    if not best or not Phases.canKeeperSwap(match, best) then return nil end
+    local curV = AI._keeperValue(cur.definition, enemyPenalties, cur.saves)
+    if bestV - curV < AI.KEEPER_SWAP_MARGIN then return nil end
+    return { type = "summon", cardId = best.id, slotType = "keeper", slotIndex = 0, mode = "defense" }
+end
+
 -- Cover specialists: Sweeper (Libero) and Intercept (Pressing Back) cover an empty defender
--- slot from a defender slot, which needs attack mode. cardDef: a hand card or a pitched card.
+-- slot from a defender slot. Sweeper needs attack mode; Intercept covers face-down too.
+-- cardDef: a hand card or a pitched card.
 function AI._coverSpecialist(cardDef)
     local kw = cardDef.keyword or (cardDef.definition and cardDef.definition.keyword)
     return kw == "SWEEPER" or kw == "INTERCEPT"
@@ -290,14 +344,16 @@ function AI._defenderGap(used)
 end
 
 -- True when a ready card on pitch can cover an empty defender slot (Phases._eligibleCoverers):
--- an attack-mode midfielder, an attack-mode Intercept/Sweeper defender, an Off the line keeper.
+-- an attack-mode midfielder, an attack-mode Sweeper defender, an Intercept defender in any
+-- mode, an Off the line keeper.
 function AI._hasDefenderCoverer(pitch)
     local function ready(c) return c and not c.exhausted and not c.cannotActNextTurn end
     local mid = pitch.midfielder
     if ready(mid) and mid.mode == "attack" then return true end
     for i = 1, C.PITCH.MAX_DEFENDERS do
         local d = pitch.defenders[i]
-        if ready(d) and d.mode == "attack" and Resolver.canCoverSlot(d, "defender", "defender") then
+        if ready(d) and (d.mode == "attack" or Resolver.coversInDefense(d, "defender", "defender"))
+           and Resolver.canCoverSlot(d, "defender", "defender") then
             return true
         end
     end
@@ -338,13 +394,14 @@ function AI._pickBestSlot(cardDef, used)
     end
     local mid = (not used.midfielder) and { slotType = "midfielder", slotIndex = 0 } or nil
 
-    -- Cover heuristic: a face-down card can't cover. A card in the midfielder slot goes in
-    -- face-up when a defender slot is open and no face-up card covers it yet; Sweeper and
-    -- Intercept always go in face-up (their ability is covering).
+    -- Cover heuristic: a face-down card can't cover (Intercept excepted). A card in the
+    -- midfielder slot goes in face-up when a defender slot is open and no card covers it yet;
+    -- a Sweeper defender always goes in face-up (its ability is covering). Intercept covers
+    -- face-down, so a Pressing Back goes in face-down like any defender.
     local specialist = AI._coverSpecialist(cardDef)
     local needCover  = used.defenders ~= nil and AI._defenderGap(used) and not used.coverer
     local midMode    = (atk >= def or needCover or specialist) and "attack" or "defense"
-    local defMode    = specialist and "attack" or "defense"
+    local defMode    = (specialist and cardDef.keyword ~= "INTERCEPT") and "attack" or "defense"
 
     if ctype == "striker" then
         local s = freeStriker()
@@ -383,7 +440,7 @@ end
 -- this turn's summons). Only revealed cards flip (a face-down card keeps its secret). A
 -- revealed defence-mode card flips to attack mode when either
 --   cover:  a defender slot stays empty, no face-up card covers it, and this card could
---           (the midfielder, or an Intercept/Sweeper defender); or
+--           (the midfielder, or a Sweeper defender; Intercept covers face-down); or
 --   attack: it wins a fight now against a face-up target it may attack (a defender-slot
 --           card against an enemy striker, the midfielder against the enemy midfielder).
 function AI._planFlips(match, used)
@@ -409,7 +466,8 @@ function AI._planFlips(match, used)
         if card.cannotActNextTurn then return end   -- locked: it can neither cover nor attack
         local covers = AI._defenderGap(used) and not used.coverer
                        and (slotType == "midfielder"
-                            or Resolver.canCoverSlot(card, "defender", "defender"))
+                            or (Resolver.canCoverSlot(card, "defender", "defender")
+                                and not Resolver.coversInDefense(card, "defender", "defender")))
         if covers or wins(card, slotType) then
             table.insert(out, { type = "flip", slotType = slotType, slotIndex = slotIndex })
             if covers then used.coverer = true end
