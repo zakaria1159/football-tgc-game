@@ -2,6 +2,7 @@
 -- Not a test file (tests/run.lua only loads tests/test_*.lua).
 local State = require("engine.state")
 local Store = require("store.match")
+local Resolver = require("engine.cards.resolver")
 
 local H = {}
 
@@ -83,5 +84,21 @@ end
 
 -- Slot table shorthand: H.slot("striker", 1), H.slot("keeper").
 function H.slot(slotType, index) return { type = slotType, index = index or 0 } end
+
+-- Field-card definition with exact stats and one ability keyword (tests don't depend on
+-- card data): H.kw("LINK_UP", "striker", 2150, 900).
+function H.kw(keyword, ctype, atk, def)
+    local c = H.card(ctype, atk, def)
+    c.keyword     = keyword
+    c.keywordName = Resolver.NAMES[keyword]
+    return c
+end
+
+-- Payloads of the ability_triggered events, in order.
+function H.triggers(m)
+    local out = {}
+    for _, e in ipairs(H.events(m, "ability_triggered")) do out[#out + 1] = e.payload end
+    return out
+end
 
 return H

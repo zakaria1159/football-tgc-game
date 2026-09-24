@@ -3,18 +3,25 @@
 -- stdout. It never writes files.
 --
 -- Usage, from the repo root:
---   lua tools/sim/sim.lua [n=1000] [seed=20260923] [diff=medium] [decks=a,b,c] [cap=60]
+--   lua tools/sim/sim.lua [n=1000] [seed=20260923] [diff=medium] [decks=a,b,c] [cap=60] [cardmin=200]
 --     n      matches per ordered matchup (every deck pair in both seat orders, mirrors included)
 --     seed   base seed: match i of ordered matchup k uses seed + k*100000 + i
 --     diff   AI difficulty for both seats: easy | medium | hard
 --     decks  comma-separated keys of data/presetDecks.lua (default: all three)
 --     cap    safety cap: a half still running after this many rounds counts as a stall
+--     cardmin  a card's win rate is flagged only with at least this many games played
 --
--- Seat "player" is the first seat (it kicks off every half). The AI plays it through a
+-- Seat "player" is the first seat (it kicks off half 1; "opponent" kicks off half 2 and a
+-- coin toss decides Extra Time, as in the game). The AI plays it through a
 -- mirrored view of the match; its trap prompts are answered with the AI's own trap policy.
 -- Half-time breaks are instant: both seats swap cards with AI.mulliganChoice, then kick off.
 -- Acceptance (spec §6): n=1000 with the three decks = 9,000 games; every deck's overall
 -- win rate 42–58%; 0 stalls; first-seat match win rate 45–55%.
+--
+-- Abilities (2026-09-24 spec §5): per-keyword trigger counts (ability_triggered events) and
+-- each field card's win rate when played (a seat that summoned it at least once in the
+-- match). A card outside 35–65% with at least `cardmin` games is flagged for the owner
+-- (ABILITY REVIEW line); acceptance itself is unchanged.
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
@@ -29,11 +36,13 @@ local N    = num("n", 1000)
 local SEED = num("seed", 20260923)
 local DIFF = args.diff or "medium"
 local CAP  = num("cap", 60)
+local CARD_MIN = num("cardmin", 200)
 
 local C     = require("engine.constants")
 local Store = require("store.match")
 local AI    = require("ai.opponent")
 local Decks = require("data.presetDecks")
+local Resolver = require("engine.cards.resolver")
 
 local deckNames = {}
 for d in (args.decks or "tikitaka,longball,catenaccio"):gmatch("[^,]+") do
@@ -148,7 +157,8 @@ local S = {
     extraTime = 0, twoNil = 0,
     rounds = {}, roundsN = {},
     mcTriggers = 0, mcGames = 0, mcLeaderWins = 0,
-    openGoals = 0, trapSet = {}, trapAct = {},
+    openGoals = 0, keeperSwaps = 0, trapSet = {}, trapAct = {},
+    kw = {}, cardGames = {}, cardWins = {},
 }
 
 local ROUND_CAP = { ["1"] = C.MATCH.HALF_ROUND_LIMIT, ["2"] = C.MATCH.HALF_ROUND_LIMIT,
@@ -169,6 +179,7 @@ local function record(m, stall, deckOf)
     if w == "player" then S.mu[key].w = S.mu[key].w + 1 end
 
     local mc, sawExtra = { player = 0, opponent = 0 }, false
+    local played = { player = {}, opponent = {} }   -- field card ids each seat summoned
     for _, e in ipairs(m.log) do
         local p = e.payload
         if e.type == "half_end" then
@@ -188,10 +199,23 @@ local function record(m, stall, deckOf)
             S.mcTriggers = S.mcTriggers + 1
         elseif e.type == "lp_damage" and p.source == "open_goal" then
             S.openGoals = S.openGoals + 1
+        elseif e.type == "card_played" and p.action == "keeper_swap" then
+            S.keeperSwaps = S.keeperSwaps + 1
         elseif e.type == "card_played" and p.slot == "trap" then
             inc(S.trapSet, p.card)
         elseif e.type == "trap_activated" then
             inc(S.trapAct, p.trap)
+        elseif e.type == "ability_triggered" then
+            inc(S.kw, p.keyword)
+        end
+        if e.type == "card_played" and p.card and p.slot ~= "trap" and played[p.player] then
+            played[p.player][p.card] = true
+        end
+    end
+    for _, seat in ipairs({ "player", "opponent" }) do
+        for id in pairs(played[seat]) do
+            inc(S.cardGames, id)
+            if w == seat then inc(S.cardWins, id) end
         end
     end
     if sawExtra then S.extraTime = S.extraTime + 1 elseif w then S.twoNil = S.twoNil + 1 end
@@ -250,6 +274,7 @@ print(string.format("avg rounds: half 1=%.2f  half 2=%.2f  extra time=%.2f",
 print(string.format("midfield control: %.2f extra draws/match; the side with more control won %.1f%% of %d games",
     avg(S.mcTriggers, S.games), pct(S.mcLeaderWins, S.mcGames), S.mcGames))
 print(string.format("open goals: %.2f/match", avg(S.openGoals, S.games)))
+print(string.format("keeper swaps: %d (%.3f/match)", S.keeperSwaps, avg(S.keeperSwaps, S.games)))
 print("deck win rates:")
 local deckRate = {}
 for _, d in ipairs(deckNames) do
@@ -265,6 +290,29 @@ print("traps set / activated:")
 for _, key in ipairs(sortedKeys(S.trapSet)) do
     print(string.format("  %-26s set=%6d  act=%6d  (%.1f%%)", key, S.trapSet[key], S.trapAct[key] or 0,
         pct(S.trapAct[key] or 0, S.trapSet[key])))
+end
+
+-- ── Abilities (2026-09-24 spec §5) ────────────────────────────────────────────
+
+print("ability triggers:")
+for _, kw in ipairs(Resolver.ORDER) do
+    print(string.format("  %-14s %8d  (%.2f/match)", Resolver.NAMES[kw], S.kw[kw] or 0,
+        avg(S.kw[kw] or 0, S.games)))
+end
+print(string.format("win rate when played (flagged outside 35-65%% with at least %d games):", CARD_MIN))
+local flagged = 0
+for _, f in ipairs({ "strikers", "midfielders", "defenders", "keepers" }) do
+    for _, d in ipairs(require("engine.cards.definitions." .. f)) do
+        local g, wn = S.cardGames[d.id] or 0, S.cardWins[d.id] or 0
+        local rate  = pct(wn, g)
+        local flag  = ""
+        if g >= CARD_MIN and (rate > 65 or rate < 35) then
+            flag = "  <-- REVIEW"
+            flagged = flagged + 1
+        end
+        print(string.format("  %-22s %-14s %5.1f%%  (%d games)%s", d.name, d.keywordName or "-",
+            rate, g, flag))
+    end
 end
 
 -- ── Acceptance (spec §6) ──────────────────────────────────────────────────────
@@ -288,3 +336,4 @@ local first = pct(S.firstWins, S.games)
 check(string.format("first-seat match win rate within 45-55%% (got %.1f%%)", first),
     first >= 45 and first <= 55)
 print("ACCEPTANCE: " .. (allPass and "PASS" or "FAIL"))
+print("ABILITY REVIEW: " .. (flagged == 0 and "OK" or (flagged .. " card(s) outside 35-65%")))

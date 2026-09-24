@@ -43,6 +43,12 @@ T.test("traps, midfield control and summons", function()
     T.eq(txt, "You summoned a STRIKER")
 end)
 
+T.test("a lost cover reads as a last-ditch tackle", function()
+    local txt = Toasts.describe({ type = "cover", payload = { coverer = { type = "midfielder" }, outcome = "tackled" } })
+    T.eq(txt, "LAST-DITCH TACKLE by MIDFIELDER")
+    T.eq((Toasts.describe({ type = "cover", payload = { coverer = { type = "defender" } } })), "COVER by DEFENDER")
+end)
+
 T.test("unknown events fall back to readable text", function()
     local txt, kind = Toasts.describe({ type = "foo_bar" })
     T.eq(txt, "foo bar"); T.eq(kind, "info")

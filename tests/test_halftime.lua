@@ -217,7 +217,7 @@ T.test("store: gameplay actions are refused during the break", function()
     r, err = s:playStrategy(strat.id);                       T.eq(r, nil); T.eq(err, "half-time", "strategy")
     local turn = m.turn
     r, err = s:endTurn();                                    T.eq(r, nil); T.eq(err, "half-time", "end turn")
-    T.eq(m.turn, turn); T.eq(m.activePlayer, "player")
+    T.eq(m.turn, turn); T.eq(m.activePlayer, "opponent", "half 2's starter, unchanged")
     m.phase = "draw"
     local handN = #m.players.player.hand
     r, err = s:drawPhase();                                  T.eq(r, nil); T.eq(err, "half-time", "draw")

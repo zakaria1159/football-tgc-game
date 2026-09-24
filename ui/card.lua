@@ -6,6 +6,7 @@
 --   Card.drawLarge(cardDef, x, y, w)        → face + info sticker, returns total h
 -- New:
 --   Card.layout(w, h)                       pure geometry (unit-tested)
+--   Card.keywordLabel(cardDef)              keyword pill text or nil (pure, unit-tested)
 --   Card.drawFace(cardDef, x, y, w, h, opts) opts: stats, atkBonus, defBonus, exhausted, selected, target, alpha,
 --                                                   badges = "corners"|"left"|"none"
 --   Card.drawBadges(cardDef, x, y, w, h, opts) badges only; opts: stats, atkBonus, defBonus, alpha,
@@ -71,6 +72,15 @@ function Card.layout(w, h)
     local artTop, artBottom = L.border + 6 * s, L.ribbon.y - 2
     local iconSize = math.min(w * 0.56, (artBottom - artTop) * 0.92)
     L.icon = { cx = w / 2, cy = (artTop + artBottom) / 2, size = iconSize }
+    -- Status pieces drawn over the art (drawExhausted, drawPitched).
+    local ph = math.max(10, 16 * s)
+    L.zzz     = { y = h * 0.30, h = ph }                  -- exhausted pill
+    L.defPill = { y = h * 0.12, h = ph }                  -- revealed card's DEF marker
+    L.flip    = { y = h * 0.26, h = math.max(12, 20 * s) }  -- revealed card's TO ATTACK ribbon
+    -- Keyword pill: centred just above the name ribbon, below the status pieces; never over
+    -- the ribbon, the badges, the type tag or the gem.
+    local kwH = math.max(9, 14 * s)
+    L.kw = { cx = w / 2, y = L.ribbon.y - kwH - math.max(1, 2 * s), h = kwH, maxW = w - 16 * s }
     return L
 end
 
@@ -127,11 +137,23 @@ local function drawHighlights(L, x, y, opts, rarity)
 end
 
 local function drawExhausted(L, x, y, alpha)
-    local ph = math.max(10, 16 * L.s)
+    local ph = L.zzz.h
     local pw = ph * 2.4
-    Draw.pill(x + (L.w - pw) / 2, y + L.h * 0.30, pw, ph, "zzz", {
+    Draw.pill(x + (L.w - pw) / 2, y + L.zzz.y, pw, ph, "zzz", {
         fill = Theme.white, textColor = Theme.inkText, border = 0, shadow = math.max(1, math.floor(2 * L.s)),
         alpha = alpha,
+    })
+end
+
+-- Keyword pill ("LINK-UP") centred above the name ribbon; nil label draws nothing.
+local function drawKeyword(label, L, x, y, alpha)
+    if not label then return end
+    local k    = L.kw
+    local size = math.max(6, math.floor(k.h * 0.62))
+    local tw   = math.min(k.maxW, #label * size * 0.62 + k.h)
+    Draw.pill(x + k.cx - tw / 2, y + k.y, tw, k.h, label, {
+        fill = Theme.grad.keyword, textColor = Theme.inkText,
+        border = math.max(1, math.floor(2 * L.s)), shadow = 0, size = size, alpha = alpha,
     })
 end
 
@@ -194,6 +216,7 @@ function Card.drawFace(cardDef, x, y, w, h, opts)
     drawTag(Theme.typeLabel[ctype] or string.upper(ctype or "?"), L, x, y, a)
     drawGem(cardDef.rarity, L, x, y, a)
     drawRibbon(cardDef.name, L, x, y, a)
+    drawKeyword(Card.keywordLabel(cardDef), L, x, y, a)
 
     Card.drawBadges(cardDef, x, y, w, h, opts)
 
@@ -234,27 +257,40 @@ end
 
 -- ── Public API (existing contract) ────────────────────────────────────────────
 
--- Bonuses shown on a pitched card's badges. Pure (unit-tested).
---   striker  → +ATK from an attack-mode midfielder card
---   defender → +DEF from a defense-mode midfielder card
---   keeper   → effective DEF (defenders + midfielder) minus base DEF
--- hideHidden: the card is the opponent's. Their unrevealed face-down midfielder is hidden,
--- so its +DEF isn't shown (it would tell a midfielder card apart from another type).
--- The keeper's +150 comes from any card in the slot, so it gives nothing away.
+-- Bonuses shown on a pitched card's badges: its always-on bonuses. Pure (unit-tested).
+--   striker  → +ATK: midfielder card bonus (Engine / Overlap) and Link-up
+--   defender → +DEF: midfielder card bonus (Engine) and Last man
+--   keeper   → effective DEF minus base DEF (line, Bolt, midfielder, Safe hands)
+-- Situational bonuses (Instinct, Opportunist, Counter-press) are not shown here.
+-- hideHidden: the card is the opponent's; bonuses from their face-down, unrevealed cards
+-- (a hidden midfielder's bonus, a hidden Link-up or Bolt card) are hidden information.
+-- Returns atkBonus, defBonus, atkParts, defParts.
 function Card.bonuses(pitched, pitch, hideHidden)
-    if not pitch then return 0, 0 end
-    local st = pitched.slotType
-    if st == "striker"  then return Combat.midfielderCardAtkBonus(pitch) or 0, 0 end
+    if not pitch then return 0, 0, {}, {} end
+    local st    = pitched.slotType
+    local stats = pitched.definition.stats or {}
+    if st == "striker" then
+        local atk, parts = Combat.attackStat(pitched, "striker", pitch, nil, nil, hideHidden)
+        return atk - (stats.atk or 0), 0, parts, {}
+    end
     if st == "defender" then
-        local mid = pitch.midfielder
-        if hideHidden and mid and mid.mode == "defense" and not mid.revealed then return 0, 0 end
-        return 0, Combat.midfielderCardDefBonus(pitch) or 0
+        local def, parts = Combat.defendStat(pitched, "defender", pitch, false, hideHidden)
+        return 0, def - (stats.def or 0), {}, parts
     end
     if st == "keeper" then
-        local base = (pitched.definition.stats and pitched.definition.stats.def) or 0
-        return 0, Combat.keeperEffectiveDef(pitched, pitch) - base
+        local def, parts = Combat.keeperDef(pitched, pitch, false, hideHidden)
+        return 0, def - (stats.def or 0), {}, parts
     end
-    return 0, 0
+    return 0, 0, {}, {}
+end
+
+-- Keyword pill text for a field card ("LINK-UP"), or nil (traps, strategies, no keyword).
+-- Pure (unit-tested).
+function Card.keywordLabel(cardDef)
+    local t = cardDef and cardDef.type
+    if t ~= "striker" and t ~= "defender" and t ~= "midfielder" and t ~= "keeper" then return nil end
+    if not cardDef.keywordName then return nil end
+    return string.upper(cardDef.keywordName)
 end
 
 -- True when a pitched card is drawn face-up: attack mode, or a revealed defense-mode
@@ -308,15 +344,14 @@ function Card.drawPitched(pitched, x, y, opts)
     -- Revealed defense-mode card: face-up for both players, with a DEF marker.
     if pitched.mode == "defense" then
         local L  = Card.layout(w, h)
-        local ph = math.max(10, 16 * L.s)
+        local ph = L.defPill.h
         local pw = ph * 2.6
-        Draw.pill(x + (w - pw) / 2, y + h * 0.12, pw, ph, "DEF", {
+        Draw.pill(x + (w - pw) / 2, y + L.defPill.y, pw, ph, "DEF", {
             fill = Theme.grad.def, textColor = Theme.white,
             border = math.max(1, math.floor(2 * L.s)), shadow = 0,
         })
         if opts.canFlip then
-            local rh = math.max(12, 20 * L.s)
-            Draw.ribbon(x + w / 2, y + h * 0.40, w * 0.9, rh, "TO ATTACK", {
+            Draw.ribbon(x + w / 2, y + L.flip.y, w * 0.9, L.flip.h, "TO ATTACK", {
                 fill = Theme.grad.bonus, textColor = Theme.white,
             })
         end
@@ -333,14 +368,17 @@ end
 
 local INFO_PAD = 12
 
--- Height of the info sticker for cardDef at width w (wraps the ability text).
+-- Height of the info sticker for cardDef at width w (wraps the ability text; a field card
+-- adds its keyword heading).
 function Card.infoHeight(cardDef, w)
     local body = Fonts.body(12)
     local _, lines = body:getWrap(cardDef.abilityText or "", w - INFO_PAD * 2)
-    return INFO_PAD + 22 + 16 + #lines * body:getHeight() + INFO_PAD
+    local heading = Card.keywordLabel(cardDef) and 18 or 0
+    return INFO_PAD + 22 + 16 + heading + #lines * body:getHeight() + INFO_PAD
 end
 
--- Info sticker: name, type · rarity, ability text. Returns its height.
+-- Info sticker: name, type · rarity, keyword heading (field cards), ability text.
+-- Returns its height.
 function Card.drawInfo(cardDef, x, y, w, extraH)
     local pad = INFO_PAD
     local h = Card.infoHeight(cardDef, w) + (extraH or 0)
@@ -351,7 +389,14 @@ function Card.drawInfo(cardDef, x, y, w, extraH)
     Draw.text(((Theme.typeLabel[cardDef.type] or "") .. " · " .. string.upper(cardDef.rarity or "")),
         x + pad, y + pad + 22, w - pad * 2, "left",
         { size = 11, body = true, color = { rc[1] * 0.6, rc[2] * 0.6, rc[3] * 0.6, 1 } })
-    Draw.text(cardDef.abilityText or "", x + pad, y + pad + 38, w - pad * 2, "left",
+    local textY = y + pad + 38
+    local kw = Card.keywordLabel(cardDef)
+    if kw then
+        Draw.text(kw, x + pad, textY, w - pad * 2, "left",
+            { size = 14, color = Theme.button.primary.text, fit = true })
+        textY = textY + 18
+    end
+    Draw.text(cardDef.abilityText or "", x + pad, textY, w - pad * 2, "left",
         { size = 12, body = true, color = { 0.35, 0.35, 0.54, 1 } })
     return h
 end

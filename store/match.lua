@@ -1,6 +1,7 @@
 local State  = require("engine.state")
 local Phases = require("engine.phases")
 local Combat = require("engine.combat")
+local Resolver = require("engine.cards.resolver")
 local C      = require("engine.constants")
 local AI     = require("ai.opponent")
 
@@ -112,30 +113,45 @@ function Store:declareAttack(attackerSlot, defenderSlot)
     local okAtk, whyNot = Phases.validateAttack(match, attackerSlot, defenderSlot)
     if not okAtk then return nil, whyNot end
 
-    -- Resolve real snap target: if the declared slot is empty and no cover is possible,
-    -- the attacker will advance to the next occupied line — snap that card instead.
-    local snapDefSlot = defenderSlot
+    -- Snapshot target: if the declared slot is empty and no cover is possible, the attacker
+    -- advances to the next occupied line (or the goal), so snap that instead. While a cover
+    -- is still possible, snap the attacker's fight ATK (the cover window shows it).
+    local snapDefSlot, snapOpts = defenderSlot, nil
     do
         local oppPitch = match.players[opponentId].pitch
         local slotCard = Phases._getSlot(oppPitch, defenderSlot)
         if not slotCard and defenderSlot.type ~= "striker" then
             local coverUsed = match.coverUsed[opponentId]
             local coverers  = Phases._eligibleCoverers(oppPitch, defenderSlot)
-            if coverUsed or #coverers == 0 then
+            local attackerCard = Phases._getSlotForPlayer(match, activeId, attackerSlot)
+            if coverUsed or #coverers == 0 or Resolver.uncoverable(attackerCard) then
                 local nextSlot = Phases._nextOccupiedLine(oppPitch, defenderSlot)
                 if nextSlot then snapDefSlot = nextSlot end
+            else
+                snapOpts = { fight = true }
             end
         end
     end
 
-    local snap = self:_snapshotAttack(attackerSlot, snapDefSlot)
+    -- Through ball: a one-on-one shot faces the keeper's penalty DEF.
+    if Phases._throughBallFor(match, attackerSlot, defenderSlot) then snapOpts = { penalty = true } end
+
+    local snap = self:_snapshotAttack(attackerSlot, snapDefSlot, snapOpts)
 
     -- Last Defender Foul is judged on the board before the attack.
     local lastDefender = activeId == "player" and self:_isLastFaceUpDefender(opponentId, defenderSlot)
 
+    -- Aerial: Offside can't be activated against this card's attacks.
+    local attackerCard = Phases._getSlotForPlayer(match, activeId, attackerSlot)
+    local aerial = Resolver.immuneToOffside(attackerCard)
+    if aerial and attackerSlot.type == "striker"
+       and self:_findTrap(match.players[opponentId].pitch, "OFFSIDE") then
+        Resolver.trigger(match, activeId, attackerCard, "AERIAL")
+    end
+
     -- ── Pre-attack trap check (OFFSIDE) ───────────────────────────────────────
     -- When AI attacks with striker: show player's OFFSIDE/MC window
-    if activeId == "opponent" and attackerSlot.type == "striker" then
+    if activeId == "opponent" and attackerSlot.type == "striker" and not aerial then
         local offsideTrap, offsideIdx = self:_findTrap(match.players.player.pitch, "OFFSIDE")
         if offsideTrap then
             local traps = { { card = offsideTrap, slotIndex = offsideIdx } }
@@ -155,7 +171,7 @@ function Store:declareAttack(attackerSlot, defenderSlot)
     end
 
     -- When player attacks with striker: AI OFFSIDE auto-fires (or player can counter with MC)
-    if activeId == "player" and attackerSlot.type == "striker" then
+    if activeId == "player" and attackerSlot.type == "striker" and not aerial then
         local aiOffside, aiOffsideIdx = self:_findTrap(match.players.opponent.pitch, "OFFSIDE")
         if aiOffside and AI.wantsOffside(match, "opponent", attackerSlot, defenderSlot) then
             local mcTrap, mcIdx = self:_findTrap(match.players.player.pitch, "MANAGERS_CHALLENGE")
@@ -176,8 +192,7 @@ function Store:declareAttack(attackerSlot, defenderSlot)
             else
                 -- Auto-fire AI OFFSIDE
                 local trapDef = Phases.activateTrap(match, "opponent", aiOffsideIdx)
-                local attCard = Phases._getSlotForPlayer(match, "player", attackerSlot)
-                if attCard then attCard.exhausted = true end
+                Phases.cancelAttack(match, "player", attackerSlot, defenderSlot)
                 local atkName = snap.attacker and snap.attacker.name or "Striker"
                 self:_pushTrapActivation("opponent", trapDef or aiOffside.definition,
                     "Your " .. atkName .. " was caught offside!")
@@ -387,8 +402,7 @@ function Store:resolveTrap(trapSlotIndex)
         else
             -- Player passes — AI's OFFSIDE fires
             Phases.activateTrap(match, "opponent", tw.aiTrapIdx)
-            local attCard = Phases._getSlotForPlayer(match, "player", tw.attackerSlot)
-            if attCard then attCard.exhausted = true end
+            Phases.cancelAttack(match, "player", tw.attackerSlot, tw.defenderSlot)
             local atkName = tw.attackerSnap and tw.attackerSnap.name or "Striker"
             self:_pushTrapActivation("opponent", tw.aiTrapCard.definition,
                 "Your " .. atkName .. " was caught offside!")
@@ -437,8 +451,7 @@ function Store:resolveTrap(trapSlotIndex)
         local ctxText = ""
 
         if tw.type == "pre_attack" and ability == "OFFSIDE" then
-            local attCard = Phases._getSlotForPlayer(match, opponentId, tw.attackerSlot)
-            if attCard then attCard.exhausted = true end
+            Phases.cancelAttack(match, opponentId, tw.attackerSlot, tw.defenderSlot)
             local atkName = tw.attackerSnap and tw.attackerSnap.name or "Striker"
             ctxText = atkName .. " blocked — offside!"
 
@@ -511,11 +524,8 @@ function Store:playStrategy(cardId, opts)
         if c.id == cardId and (c.ability == "DIRECT_FREE_KICK" or c.ability == "PENALTY") then
             local _, bestSlot = Phases._bestStriker(match.players[activeId].pitch)
             if bestSlot then
-                shotSnap = self:_snapshotAttack(bestSlot, { type = "keeper", index = 0 })
-                local keeper = match.players[State.other(activeId)].pitch.keeper
-                if c.ability == "PENALTY" and keeper and shotSnap.defender then
-                    shotSnap.defender.def = Combat.getStat(keeper, "defend")
-                end
+                shotSnap = self:_snapshotAttack(bestSlot, { type = "keeper", index = 0 },
+                                                { penalty = c.ability == "PENALTY" })
             end
             break
         end
@@ -554,7 +564,8 @@ function Store:resolveCover(covererSlot)
         local nextSlot = Phases._nextOccupiedLine(match.players[opponentId].pitch, emptySlot)
         defSlotForSnap = nextSlot or emptySlot
     end
-    local snap = self:_snapshotAttack(attackerSlot, defSlotForSnap)
+    local snap = self:_snapshotAttack(attackerSlot, defSlotForSnap,
+                                      covererSlot and { covering = true } or nil)
     self.coverWindow = nil
 
     local result, err = Phases.resolveCover(self.match, attackerSlot, emptySlot, covererSlot)
@@ -638,6 +649,7 @@ function Store:_pushCombat(snap, result)
             margin       = result.margin or 0,
             damage       = result.damage or 0,
             activePlayer = self.match and self.match.activePlayer or "player",
+            abilities    = result.abilities or {},   -- keywords that fired (overlay)
         })
     end
 end
@@ -652,67 +664,79 @@ function Store:_findTrap(pitch, ability)
     return nil, nil
 end
 
-function Store:_snapshotAttack(attackerSlot, defenderSlot)
+-- Combat snapshot for the overlay, taken before the attack resolves, with the numbers the
+-- engine will use (Combat.attackStat / defendStat / keeperDef).
+--   opts.covering: the defender slot holds a card covering an empty slot (a fight, also for
+--                  an Off the line keeper).
+--   opts.fight:    the declared slot is empty and a cover may still happen: the attacker's
+--                  fight ATK (the cover window shows it).
+--   opts.penalty:  a Penalty or a Through ball shot (the keeper's penalty DEF).
+-- Otherwise a keeper target, or an empty non-striker slot (open goal), is a shot.
+-- Each side: { name, type, mode, wasHidden, atk, def, atkBonus, defBonus, isKeeper,
+--              atkTags, defTags } — tags { keyword, name, amount } from ability parts.
+function Store:_snapshotAttack(attackerSlot, defenderSlot, opts)
+    opts = opts or {}
     local match      = self.match
     local activeId   = match.activePlayer
     local opponentId = State.other(activeId)
+    local atkPitch   = match.players[activeId].pitch
+    local defPitch   = match.players[opponentId].pitch
+    local atkCard    = attackerSlot and Phases._getSlot(atkPitch, attackerSlot) or nil
+    local defCard    = defenderSlot and Phases._getSlot(defPitch, defenderSlot) or nil
+    local isShot     = defenderSlot ~= nil and not opts.covering and not opts.fight
+                       and (defenderSlot.type == "keeper"
+                            or (defCard == nil and defenderSlot.type ~= "striker"))
 
-    local function getCard(pitch, slot)
-        if not slot then return nil end
-        if slot.type == "keeper"     then return pitch.keeper end
-        if slot.type == "defender"   then return pitch.defenders[slot.index] end
-        if slot.type == "midfielder" then return pitch.midfielder end
-        if slot.type == "striker"    then return pitch.strikers[slot.index] end
-        return nil
-    end
-
-    local atkCard = getCard(match.players[activeId].pitch,   attackerSlot)
-    local defCard = getCard(match.players[opponentId].pitch, defenderSlot)
-
-    local function snap(card, isKeeper, slotType)
-        if not card then return nil end
-        local d        = card.definition
-        local oppPitch = match.players[opponentId].pitch
-        local atkPitch = match.players[activeId].pitch
-
-        local atkBonus = 0
-        local defBonus = 0
-        local defStat
-
-        if isKeeper then
-            defStat = Combat.keeperEffectiveDef(card, oppPitch)
-        else
-            defStat = Combat.getStat(card, "defend")
-            if slotType == "defender" then
-                defBonus = Combat.midfielderCardDefBonus(oppPitch)
-                defStat  = defStat + defBonus
+    -- Ability tags for the overlay. A tag whose source is one of the AI's face-down,
+    -- unrevealed cards is left out (hidden information); the totals still count it.
+    local function tags(parts, ownerId)
+        local out = {}
+        for _, p in ipairs(parts or {}) do
+            if not (ownerId == "opponent" and Resolver.hidden(p.pitched)) then
+                out[#out + 1] = { keyword = p.keyword,
+                                  name = Resolver.NAMES[p.keyword] or p.keyword,
+                                  amount = p.amount }
             end
         end
+        return out
+    end
 
-        local atkStat = Combat.getStat(card, "attack")
-        if slotType == "striker" then
-            atkBonus = Combat.midfielderCardAtkBonus(atkPitch)
-            atkStat  = atkStat + atkBonus
-        end
-
+    local function base(card, isKeeper)
+        local d = card.definition
         return {
-            name      = d.name,
-            type      = d.type,
-            mode      = card.mode,
+            name = d.name, type = d.type, mode = card.mode,
             wasHidden = (card.mode == "defense" and not card.revealed),
-            atk       = atkStat,
-            def       = defStat,
-            atkBonus  = atkBonus,
-            defBonus  = defBonus,
-            isKeeper  = isKeeper,
+            atk = Combat.getStat(card, "attack"), def = Combat.getStat(card, "defend"),
+            atkBonus = 0, defBonus = 0, isKeeper = isKeeper, atkTags = {}, defTags = {},
         }
     end
 
-    local isKeeperShot = defenderSlot and defenderSlot.type == "keeper"
-    return {
-        attacker = snap(atkCard, false,         attackerSlot and attackerSlot.type),
-        defender = snap(defCard, isKeeperShot,  defenderSlot and defenderSlot.type),
-    }
+    local attacker
+    if atkCard then
+        attacker = base(atkCard, false)
+        local atk, parts = Combat.attackStat(atkCard, attackerSlot.type, atkPitch, defPitch,
+                                             isShot and { keeper = defPitch.keeper } or nil)
+        attacker.atkBonus = atk - attacker.atk
+        attacker.atk      = atk
+        attacker.atkTags  = tags(parts, activeId)
+    end
+
+    local defender
+    if defCard then
+        local isKeeper = defenderSlot.type == "keeper" and not opts.covering
+        defender = base(defCard, isKeeper)
+        local def, parts
+        if isKeeper then
+            def, parts = Combat.keeperDef(defCard, defPitch, opts.penalty)
+        else
+            def, parts = Combat.defendStat(defCard, defenderSlot.type, defPitch, opts.covering)
+        end
+        defender.defBonus = def - defender.def
+        defender.def      = def
+        defender.defTags  = tags(parts, opponentId)
+    end
+
+    return { attacker = attacker, defender = defender }
 end
 
 function Store:_assertPhase(expected)

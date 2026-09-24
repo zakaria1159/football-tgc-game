@@ -16,6 +16,8 @@ local Audio         = require("ui.audio")
 local Character     = require("ui.character")
 local C             = require("engine.constants")
 local State         = require("engine.state")
+local Phases        = require("engine.phases")
+local Resolver      = require("engine.cards.resolver")
 local PauseMenu     = require("ui.menu.pause")
 local CardLibrary   = require("ui.menu.library")
 local Layout        = require("ui.match.layout")
@@ -301,6 +303,9 @@ function Match.update(dt)
     end
 
     if match.activePlayer == "opponent" then
+        -- The AI kicks off half 2 (and Extra Time on a lost coin toss): it waits for the
+        -- SECOND HALF / EXTRA TIME banner to clear before playing.
+        if kickBanner.text then return end
         -- A plan left over from the previous half (the AI won it mid-turn) is dropped, so
         -- the AI draws and summons on its first turn of the new half.
         if aiPlan and aiPlanTag ~= AI.planTag(match) then aiPlan = nil end
@@ -489,6 +494,8 @@ function Match.hintText(match)
             return "SUBSTITUTION: select a card and place it in the freed slot (free)"
         elseif selectedHandCard and selectedHandCard.type == "trap" then
             return "Click a TRAP slot by your goal to set it face-down  ·  ESC to cancel"
+        elseif selectedHandCard and Phases.canKeeperSwap(match, selectedHandCard) then
+            return "Click your GK to bring this keeper on (uses a summon)"
         elseif selectedHandCard then
             return "Mode: " .. selectedMode:upper() .. "  ·  Click an empty slot to place  ·  ESC to cancel"
         end
@@ -562,9 +569,11 @@ function Match.getHighlightedSlots(match)
         return slots
     end
 
-    -- Field card → only empty slots (summon phase only)
+    -- Field card → only empty slots (summon phase only); a keeper card also targets your
+    -- occupied GK slot (keeper substitution, Phases.canKeeperSwap).
     if match.phase ~= "summon" then return {} end
-    if not pitch.keeper then
+    if not pitch.keeper
+       or (match.activePlayer == "player" and Phases.canKeeperSwap(match, selectedHandCard)) then
         table.insert(slots, { slotType="keeper", slotIndex=0, owner="player" })
     end
     if not pitch.midfielder then
@@ -602,7 +611,8 @@ function Match.getAttackTargetSlots(match)
         end
         local hasGap = false
         for i = 1, C.PITCH.MAX_DEFENDERS do if not oPitch.defenders[i] then hasGap = true; break end end
-        if hasGap then
+        -- Keeper: through a gap, or past a full line with a Through ball (once per turn).
+        if hasGap or Resolver.throughBall(match.players.player.pitch) then
             table.insert(slots, { slotType="keeper", slotIndex=0, owner="opponent" })
         end
 
@@ -900,8 +910,7 @@ function Match.mousepressed(x, y, button)
                     local canAttack = slot.slotType == "striker"
                                    or slot.slotType == "midfielder"
                                    or slot.slotType == "defender"
-                    if not card.exhausted and not card.cannotActNextTurn
-                       and card.mode == "attack" and canAttack then
+                    if canAttack and Phases.canAttackNow(card) then
                         if selectedAttackerSlot
                             and selectedAttackerSlot.type == slot.slotType
                             and selectedAttackerSlot.index == slot.slotIndex then
@@ -909,6 +918,8 @@ function Match.mousepressed(x, y, button)
                         else
                             selectedAttackerSlot = { type=slot.slotType, index=slot.slotIndex }
                         end
+                    elseif canAttack and card.summonedThisTurn and card.mode == "attack" then
+                        Match.flash("summoned this turn — attacks next turn")
                     end
                 end
                 return
@@ -1036,7 +1047,7 @@ function Match.halfTimeAction(action, i)
             Match.flash(err)
         end
     elseif action == "kickoff" then
-        local text = HalfTime.labels(store.match.half).banner
+        local text = HalfTime.labels(store.match.half, store.match.halfStarter).banner
         store:kickOff()
         halfTime = nil
         kickBanner:show(text, "info")

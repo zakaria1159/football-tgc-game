@@ -26,12 +26,17 @@ T.test("extra time: level LP → more damage dealt during Extra Time wins", func
     T.eq(State.checkHalfEnd(m), "opponent")
 end)
 
-T.test("extra time: a full tie goes to the player who went second, not the human", function()
-    T.eq(State.checkHalfEnd(et(2500, 2500)), "opponent")
+T.test("extra time: a full tie goes to the seat that did not kick off", function()
+    local m = et(2500, 2500)
+    m.halfStarter = "player"
+    T.eq(State.checkHalfEnd(m), "opponent")
+    m.halfStarter = "opponent"
+    T.eq(State.checkHalfEnd(m), "player")
 end)
 
 T.test("extra time: after the 6th round the decider ends the match", function()
     local m = H.match({ half = "extra", turn = 6, active = "opponent" })
+    m.halfStarter = "player"   -- the player won the coin toss: the opponent closes the round
     m.extraTurnsLeft = 1
     m.players.player.halvesWon, m.players.opponent.halvesWon = 1, 1
     m.players.player.lp, m.players.opponent.lp = 1000, 1500

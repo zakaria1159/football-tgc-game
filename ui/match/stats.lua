@@ -20,11 +20,12 @@ function Stats.crownOwner(match)
     return nil
 end
 
--- used, max — "SUMMONS used / max". max is 2, or 1 under the opponent's Time Wasting.
--- Midfield control gives a card, not a summon, so there is no bonus flag.
+-- used, max — "SUMMONS used / max". max is 2, or 1 under the opponent's Time Wasting, plus
+-- Metronome's extra summon on your own turn. Midfield control itself gives a card.
 function Stats.summons(match)
     local used = match.summonCount or 0
     local max  = match.players.player.nextTurnSummonLimit or C.MATCH.MAX_SUMMONS_PER_TURN
+    if match.activePlayer == "player" then max = max + (match.bonusSummons or 0) end
     return used, max
 end
 

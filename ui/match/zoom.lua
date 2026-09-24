@@ -4,6 +4,9 @@ local Theme  = require("ui.theme")
 local Draw   = require("ui.kit.draw")
 local Card   = require("ui.card")
 local Layout = require("ui.match.layout")
+local Fonts  = require("ui.fonts")
+local C        = require("engine.constants")
+local Resolver = require("engine.cards.resolver")
 
 local Zoom = {}
 Zoom.W, Zoom.H    = 200, 274   -- Theme.cardSize.zoom
@@ -39,6 +42,18 @@ function Zoom.place(src, infoH, W, H)
     return { cardX = cardX, cardY = cardY, infoX = infoX, infoY = infoY }
 end
 
+-- " (Link-up +150, Engine +100)" for a stat line; "" without keyword parts. Pure.
+function Zoom.partsText(parts)
+    local out = {}
+    for _, p in ipairs(parts or {}) do
+        if p.keyword then
+            out[#out + 1] = (Resolver.NAMES[p.keyword] or p.keyword) .. " +" .. tostring(p.amount or 0)
+        end
+    end
+    if #out == 0 then return "" end
+    return " (" .. table.concat(out, ", ") .. ")"
+end
+
 -- Extra lines under the ability text: { text, color = ink|bonus|bad|warn }.
 -- hideHidden: the card is the opponent's (see Card.bonuses).
 function Zoom.statusLines(cardDef, pitched, pitch, hideHidden)
@@ -52,13 +67,15 @@ function Zoom.statusLines(cardDef, pitched, pitch, hideHidden)
     if not pitched then return lines end
 
     local st = cardDef.stats or {}
-    local atkB, defB = Card.bonuses(pitched, pitch, hideHidden)
+    local atkB, defB, atkParts, defParts = Card.bonuses(pitched, pitch, hideHidden)
     if atkB > 0 then
-        add("ATK " .. (st.atk or 0) .. " + " .. atkB .. " = " .. ((st.atk or 0) + atkB), "bonus")
+        add("ATK " .. (st.atk or 0) .. " + " .. atkB .. " = " .. ((st.atk or 0) + atkB)
+            .. Zoom.partsText(atkParts), "bonus")
     end
     if defB > 0 then
         local label = pitched.slotType == "keeper" and "Effective DEF " or "DEF "
-        add(label .. (st.def or 0) .. " + " .. defB .. " = " .. ((st.def or 0) + defB), "bonus")
+        add(label .. (st.def or 0) .. " + " .. defB .. " = " .. ((st.def or 0) + defB)
+            .. Zoom.partsText(defParts), "bonus")
     end
     local modeText = "Mode: ATTACK"
     if pitched.mode == "defense" then
@@ -66,13 +83,28 @@ function Zoom.statusLines(cardDef, pitched, pitch, hideHidden)
     end
     add(modeText, "ink")
     if pitched.exhausted then add("EXHAUSTED", "bad") end
-    if pitched.cannotActNextTurn then add("Cannot act next turn", "bad") end
+    if pitched.cannotActNextTurn or pitched.lockedNextTurn then add("Cannot act next turn", "bad") end
+    if pitched.summonedThisTurn and pitched.mode == "attack" and pitched.slotType ~= "keeper"
+       and not C.MATCH.SUMMONED_CAN_ATTACK and not Resolver.canAttackWhenSummoned(pitched) then
+        add("Just summoned: attacks next turn", "warn")
+    end
     if (pitched.yellowCards or 0) > 0 then add("Yellow cards: " .. pitched.yellowCards, "warn") end
     return lines
 end
 
+-- A status line wraps onto extra rows when it is wider than the sticker (a stat line
+-- naming several ability parts). Returns the wrapped rows.
+local LINE_SIZE = 13
+local function lineRows(text)
+    local _, rows = Fonts.body(LINE_SIZE):getWrap(text, Zoom.INFO_W - 24)
+    if #rows == 0 then rows = { text } end
+    return rows
+end
+
 function Zoom.infoHeight(cardDef, lines)
-    return Card.infoHeight(cardDef, Zoom.INFO_W) + (#lines > 0 and (#lines * Zoom.LINE_H + 6) or 0)
+    local n = 0
+    for _, ln in ipairs(lines) do n = n + #lineRows(ln.text) end
+    return Card.infoHeight(cardDef, Zoom.INFO_W) + (n > 0 and (n * Zoom.LINE_H + 6) or 0)
 end
 
 -- Info sticker only, centred above src (used for hand cards). Pure placement,
@@ -121,10 +153,12 @@ function Zoom.draw(z)
     Card.drawInfo(z.cardDef, p.infoX, p.infoY, Zoom.INFO_W, infoH - baseH)
     local y = p.infoY + baseH - 6
     for _, ln in ipairs(lines) do
-        Draw.text(ln.text, p.infoX + 12, y, Zoom.INFO_W - 24, "left", {
-            size = 13, body = true, color = LINE_COLORS[ln.color] or Theme.inkText, fit = true, minSize = 9,
-        })
-        y = y + Zoom.LINE_H
+        for _, row in ipairs(lineRows(ln.text)) do
+            Draw.text(row, p.infoX + 12, y, Zoom.INFO_W - 24, "left", {
+                size = LINE_SIZE, body = true, color = LINE_COLORS[ln.color] or Theme.inkText,
+            })
+            y = y + Zoom.LINE_H
+        end
     end
     love.graphics.pop()
 end

@@ -157,7 +157,17 @@ S.summon = {
     { 5.2,  function() local r = fieldSlot(picked.field); if r then click(center(r)) end end },
     { 5.4,  function() move(640, 60) end },
     { 5.8,  function(c) c.snap("attack") end },
-    { 5.9,  function() if picked.field then love.keypressed("escape") end end },
+    -- Deselect the attacker, if it could be selected: a card summoned this turn attacks next
+    -- turn (Pace excepted), and Escape with nothing selected opens the pause menu.
+    { 5.9,  function()
+        if not picked.field then return end
+        for _, e in ipairs(require("engine.cards.resolver").fieldCards(store().match.players.player.pitch)) do
+            if e.card.definition.id == picked.field.id
+               and require("engine.phases").canAttackNow(e.card) then
+                love.keypressed("escape")
+            end
+        end
+    end },
     { 6.0,  function() click(center(Layout.bottom.endTurn)) end },
     { 8.25, function(c) c.snap("aiturn") end },
     { 14.25, function(c) c.snap("myturn") end },
@@ -281,7 +291,16 @@ S.combat = {
     { 12.8, function(c) c.snap("opp_open") end },
     { 12.9, function() love.keypressed("space") end },
     { 13.2, function(c) c.snap("dismissed") end },
-    { 13.5, function(c) c.quit() end },
+    -- A lost cover: last-ditch tackle (both exhausted, nothing destroyed, no LP)
+    { 13.3, combat({
+        attacker = snapFrom("str-clinical-finisher"),
+        defender = snapFrom("mid-pressing-monster", { def = 1700, defBonus = 300,
+            defTags = { { keyword = "COUNTER_PRESS", name = "Counter-press", amount = 300 } } }),
+        outcome = "tackled", margin = 600, damage = 0, activePlayer = "player",
+        abilities = { "COUNTER_PRESS" } }) },
+    { 15.4, function(c) c.snap("tackle") end },
+    { 15.5, function() love.keypressed("space") end },
+    { 15.7, function(c) c.quit() end },
 }
 
 -- Trap activation: flash, flip, stamp, dust, full; then an opponent trap.
@@ -380,7 +399,8 @@ S.scout = {
 
 -- Half time (harness-only: zero the opponent's LP and let the store end the half). The
 -- ribbon plays, then the half-time screen: pick 2 cards (click + key), SWAP, pause over the
--- screen, KICK OFF, the SECOND HALF banner, then the pitch.
+-- screen, KICK OFF, the SECOND HALF · OPPONENT KICKS OFF banner, then the pitch: the AI
+-- kicks off half 2, so its turn plays first ("aiturn"), then it is your turn ("yourturn").
 local function htCard(i)
     local HT = require("ui.overlay.halftime")
     local r = HT.cardRects(#hand())[i]
@@ -410,7 +430,9 @@ S.halftime = {
     { 7.6,  function() love.keypressed("return") end },
     { 8.1,  function(c) c.snap("banner") end },
     { 10.0, function(c) c.snap("pitch") end },
-    { 10.3, function(c) c.quit() end },
+    { 11.5, function(c) c.snap("aiturn") end },
+    { 16.0, function(c) c.snap("yourturn") end },
+    { 16.3, function(c) c.quit() end },
 }
 
 -- Victory (harness-only: you already won a half; win the second), then R to play again.
@@ -501,6 +523,83 @@ S.midfield = {
     { 1.9, function(c) c.snap("banner") end },
     { 2.6, function(c) c.snap("toast") end },
     { 2.8, function(c) c.quit() end },
+}
+
+-- Keyword pills on every field card, the hand size, revealed / exhausted / flip states, a
+-- 68×80 card and a zoom card with its info sticker (tools/snapshot/card_gallery.lua).
+S.keywords = {
+    { 0.3, function() love.draw = require("tools.snapshot.card_gallery").drawKeywords end },
+    { 1.0, function(c) c.snap("gallery") end },
+    { 1.5, function(c) c.quit() end },
+}
+
+-- Abilities through the real engine (harness-only board): pills and bonus badges on the
+-- pitch, the zoom's ability line, a real shot with Overlap + Link-up + Opportunist tags, a
+-- synthetic Punch clear save for the ability pill, then a real Press summon for the toast.
+S.abilities = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, kickOff },
+    { 1.5, function()
+        local m = store().match
+        local P, O = m.players.player.pitch, m.players.opponent.pitch
+        P.strikers[1]  = pitched("str-poacher", "striker")
+        P.strikers[2]  = pitched("str-complete-forward", "striker")
+        P.midfielder   = pitched("mid-direct-support", "midfielder")
+        O.keeper       = pitched("keeper-iron-fists", "keeper", "defense")
+        O.defenders[1] = pitched("def-stopper", "defender")
+        m.turn, m.phase = 2, "attack"
+    end },
+    { 1.9, function(c) c.snap("board") end },
+    { 2.0, function() move(center(Layout.slot("player", "striker", 1))) end },
+    { 2.6, function(c) c.snap("zoom") end },
+    { 2.7, function()
+        move(640, 60)
+        local st = store()
+        st:declareAttack({ type = "striker", index = 1 }, { type = "keeper", index = 0 })
+        require("scenes.match").debugOverlay("combat", st:popCombat())
+    end },
+    { 4.1, function(c) c.snap("tags") end },
+    { 4.6, function(c) c.snap("result") end },
+    { 4.7, function() love.keypressed("space") end },
+    { 4.8, combat({
+        attacker = snapFrom("str-speed-demon"),
+        defender = snapFrom("keeper-iron-fists", { def = 2200, isKeeper = true }),
+        outcome = "save", margin = -50, damage = 0, activePlayer = "player",
+        abilities = { "PUNCH_CLEAR" } }) },
+    { 6.9, function(c) c.snap("punch") end },
+    { 7.0, function() love.keypressed("space") end },
+    { 7.1, function()
+        local st = store()
+        local m  = st.match
+        m.phase, m.summonCount = "summon", 0
+        local pf = defById("str-pressing-forward")
+        table.insert(m.players.player.hand, pf)
+        st:summonCard(pf.id, "defender", 2, "attack")
+    end },
+    { 7.6, function(c) c.snap("toasts") end },
+    { 7.8, function(c) c.quit() end },
+}
+
+-- Keeper substitution: Reliable Hands in goal (harness-only), The Wall in hand. Select it
+-- (your GK glows, hint), click the GK: The Wall comes on, Reliable Hands goes to hand.
+local swapGk
+S.keeperswap = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, kickOff },
+    { 1.5, function()
+        local st = store()
+        st.match.players.player.pitch.keeper = pitched("keeper-reliable-hands", "keeper", "defense")
+        swapGk = defById("keeper-the-wall")
+        table.insert(hand(), swapGk)
+    end },
+    { 1.8, function() move(handPoint(swapGk)) end },
+    { 2.0, function() press(handPoint(swapGk)) end },
+    { 2.2, function() move(640, 300) end },
+    { 2.6, function(c) c.snap("before") end },
+    { 2.7, function() click(center(Layout.slot("player", "keeper", 0))) end },
+    { 2.8, function() move(640, 300) end },
+    { 3.6, function(c) c.snap("after") end },
+    { 3.8, function(c) c.quit() end },
 }
 
 return S

@@ -48,4 +48,31 @@ function G.draw()
     local ib = Button.new({ icon = "whistle", variant = "icon", x = 1060, y = 500, w = 48, h = 48 }); ib:draw()
     Draw.ribbon(840, 680, 360, 48, "MIDFIELD CONTROL +1", { fill = Theme.button.primary.fill, textColor = Theme.button.primary.text })
 end
+
+-- Keyword pills: all 24 field cards at small size, then hand, pitch states and zoom + info.
+function G.drawKeywords()
+    local W, H = love.graphics.getWidth(), love.graphics.getHeight()
+    Draw.background(W, H)
+    local field = {}
+    for _, d in ipairs(defs) do
+        if d.type == "striker" or d.type == "midfielder" or d.type == "defender" or d.type == "keeper" then
+            field[#field + 1] = d
+        end
+    end
+    for i, d in ipairs(field) do
+        local col, row = (i - 1) % 12, math.floor((i - 1) / 12)
+        Card.drawFace(d, 30 + col * 102, 30 + row * 150, 84, 106, {})
+    end
+    local function byId(id) return pick(function(d) return d.id == id end) end
+    local y = 340
+    Card.drawFace(byId("str-speed-demon"), 30, y, 120, 165, { badges = "left" })
+    Card.drawPitched({ definition = byId("keeper-the-wall"), mode = "defense", revealed = true,
+                       slotType = "keeper", exhausted = true }, 180, y, {})
+    Card.drawPitched({ definition = byId("def-libero"), mode = "defense", revealed = true,
+                       slotType = "defender" }, 310, y, { canFlip = true })
+    Card.drawFace(byId("mid-pressing-monster"), 440, y, 68, 80, {})
+    -- Right of the pitch states, sized so the info sticker stays on screen.
+    Card.drawLarge(byId("mid-creative-playmaker"), 1010, 305, 220)
+end
+
 return G

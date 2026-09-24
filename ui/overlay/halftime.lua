@@ -24,15 +24,26 @@ HT.SCORE    = { x = 490, y = 130, w = 300, h = 44 }
 HT.STATS    = { x = 240, y = 192, w = 800, h = 150 }
 HT.SWAP_BTN = { x = 278, y = 662, w = 280, h = 68 }
 HT.KICK_BTN = { x = 582, y = 662, w = 420, h = 68 }
+HT.KICKOFF  = { x = 420, y = 614, w = 440, h = 36 }   -- who kicks off, between hand and buttons
 
 -- ── Text ──────────────────────────────────────────────────────────────────────
 
--- half = match.half of the half about to start (2 | "extra").
-function HT.labels(half)
+-- half = match.half of the half about to start (2 | "extra"); starter = its
+-- match.halfStarter ("player" | "opponent", optional). kickoff: the line naming who kicks
+-- off (the Extra Time one is a coin toss); the banner names them too.
+function HT.labels(half, starter)
+    local l
     if half == "extra" then
-        return { title = "FULL TIME — EXTRA TIME", kick = "KICK OFF — EXTRA TIME", banner = "EXTRA TIME" }
+        l = { title = "FULL TIME — EXTRA TIME", kick = "KICK OFF — EXTRA TIME", banner = "EXTRA TIME" }
+    else
+        l = { title = "HALF TIME", kick = "KICK OFF — 2ND HALF", banner = "SECOND HALF" }
     end
-    return { title = "HALF TIME", kick = "KICK OFF — 2ND HALF", banner = "SECOND HALF" }
+    if starter then
+        local who = starter == "player" and "YOU KICK OFF" or "OPPONENT KICKS OFF"
+        l.kickoff = (half == "extra" and "COIN TOSS: " or "") .. who
+        l.banner  = l.banner .. " · " .. who
+    end
+    return l
 end
 
 function HT.score(match)
@@ -214,7 +225,7 @@ function HT.draw(s, match, mx, my)
                                 x = K.x, y = K.y, w = K.w, h = K.h }),
         }
     end
-    local labels = HT.labels(match.half)
+    local labels = HT.labels(match.half, match.halfStarter)
     local fade = Fx.progress(s.t, 0, 0.25)
     -- Darker than Theme.dim: the pitch and the hand dock must not compete with the screen.
     love.graphics.setColor(Theme.ink[1], Theme.ink[2], Theme.ink[3], 0.9 * fade)
@@ -238,6 +249,15 @@ function HT.draw(s, match, mx, my)
 
     drawStats(match)
     drawHand(s, match.players.player.hand, mx, my)
+
+    if labels.kickoff then
+        local K = HT.KICKOFF
+        local mine = match.halfStarter == "player"
+        Draw.pill(K.x, K.y, K.w, K.h, labels.kickoff, {
+            fill = mine and Theme.button.go.fill or Theme.button.primary.fill,
+            textColor = mine and Theme.white or Theme.button.primary.text, size = 20, border = 3, shadow = 3,
+        })
+    end
 
     buttons.swap.label   = HT.swapLabel(s)
     buttons.swap.enabled = HT.canSwap(s)
