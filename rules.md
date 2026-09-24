@@ -1,7 +1,7 @@
 # Football TCG — Rules
 
-This is the game **as the code plays it** (engine V3 with the 2026-09-23 rules & balance update
-and the 2026-09-24 card abilities).
+This is the game **as the code plays it** (engine V3 with the 2026-09-23 rules & balance update,
+the 2026-09-24 card abilities and the 2026-09-24 card modes & stamina).
 Where a card text or an older document disagrees, this file and the code win.
 
 ## At a glance
@@ -11,6 +11,9 @@ Where a card text or an older document disagrees, this file and the code win.
 - A half ends when a player reaches 0 LP, or after **14 rounds** (Extra Time: **6 rounds**).
 - Kick-off alternates: **you** kick off half 1, **the opponent** kicks off half 2, and a
   **coin toss** decides who kicks off Extra Time.
+- You choose each card's mode on its slot and may switch positions once per turn.
+- Field cards tire: at **0 stamina** a card is **Tired** (−300 ATK / −300 DEF). You have
+  **3 substitutions** per half.
 
 ---
 
@@ -84,40 +87,58 @@ including the keeper slot (see **Open goal**).
 ## Turn Structure
 
 1. **Draw** — 1 card (see above), then the **midfield control** card if you control midfield.
-2. **Summon** — place up to **2** field cards (+1 with **Metronome**) in attack or defense mode
-   (1 if the opponent played Time Wasting); set trap cards (free, at most 2 on the field); flip
-   your face-down cards to attack mode (free); play Substitution; bring on a new keeper
-   (**keeper substitution**, below).
+2. **Summon** — place up to **2** field cards (+1 with **Metronome**; 1 if the opponent played
+   Time Wasting): drop a card on a slot, then choose **ATTACK** (face-up) or **DEFEND**
+   (face-down); set trap cards (free, at most 2 on the field); **switch** your cards' positions
+   (free, see **Card Modes**); **substitute** (below); play Substitution.
 3. **Attack** — each of your cards may attack **once**, except a card summoned this turn: it
    attacks from your next turn (**Pace** excepted; this also applies to the Direct Free Kick and
    Penalty shooter). You may play **1** strategy card (Direct Free Kick, Penalty, Scout Report,
    Time Wasting).
-4. **End** — your exhausted cards recover.
+4. **End** — your exhausted cards recover, and each of your field cards loses 1 stamina
+   (see **Stamina**).
 
-### Keeper substitution
+### Substitutions
 
-During your summon phase you may play a **keeper card** from your hand onto your **occupied**
-keeper slot. It **costs one summon** (it counts toward the summon limit) and is allowed on any
-turn, the opening turn of a half included — not during the half-time break, and not once the
-summon limit is reached (it is never a free Substitution summon).
+During your summon phase you may **substitute**: drop a card from your hand on one of your
+**occupied** slots. Your **keeper slot** takes keeper cards only (a **keeper swap**); any other
+slot takes any field card, as summoning does.
 
-- The keeper that was on the pitch goes back to your **hand** (not the deck). It comes back as a
-  fresh card: its per-half counters (e.g. **Safe hands** saves) and flags are gone.
-- The new keeper enters in the mode you choose, like any keeper summon; keepers never flip
-  afterwards. Its own abilities apply at once.
-- On the match screen, select a keeper card in your hand: your GK slot glows; click it.
+- It **uses one summon** and one of your **3 substitutions per half**. Keeper swaps count too.
+  The bottom bar shows **SUBS n / 3**. The count resets at half-time, and Extra Time gets 3 as
+  well.
+- It is allowed on any turn, the opening turn of a half included. It is not allowed during the
+  half-time break, once the summon limit is reached, or as the Substitution card's free
+  placement.
+- The card that was there goes back to your **hand** (not the deck). It comes back as a fresh
+  card: full stamina, with its per-half counters (e.g. **Safe hands** saves) and flags gone.
+- The incoming card enters fully rested in the mode you pick. Like any summon, it can't attack
+  until your next turn (**Pace** excepted) and can't switch position this turn. A keeper's mode
+  is for good, because keepers never switch.
+- On the match screen, select a card in your hand. The occupied slots it may replace glow along
+  with the empty ones. Click one, then choose ATTACK or DEFEND.
+- **The AI** substitutes a Tired card, or a striker-slot card at 1 stamina, when it holds a card
+  of the same line and has a summon and a substitution left. It fills empty slots first. With
+  the Substitution card in hand it uses that instead. It swaps keepers only within the same
+  budget.
 
 ### First turn of a half
 
 The player who **kicks off** a half (Extra Time included: you in half 1, the opponent in half 2,
 the coin toss winner in Extra Time) may **not attack** and may **not play Direct Free Kick or
 Penalty** on their first turn of that half. The other player may attack on its own first turn. They may still summon, set
-traps, flip cards and play Scout Report, Time Wasting or Substitution. The attack phase can
+traps, switch or substitute cards and play Scout Report, Time Wasting or Substitution. The attack phase can
 still be entered; the match screen shows a hint instead of attack targets.
 
 ---
 
 ## Card Modes
+
+**Choosing the mode.** Select a card in your hand and click a slot. A small picker opens on the
+slot: **ATTACK** (key `A`) plays the card face-up and **DEFEND** (key `D`) plays it face-down.
+`Esc`, or a click outside the picker, cancels, and the card stays selected. Traps skip the picker
+(they are always set face-down). Keepers choose too, but keepers never switch later, so the
+picker says the choice is permanent. Substitutions use the same picker.
 
 **Attack mode** (face up)
 - Can attack and can cover empty slots.
@@ -131,14 +152,71 @@ still be entered; the match screen shows a hint instead of attack targets.
   difference (the **bluff**).
 
 **Revealed** — a face-down card that is attacked and survives, is shot at (a keeper), or is
-scouted becomes **revealed**: it is shown **face up to both players with a DEF marker, but stays
-in defense mode**. It still cannot attack or cover, still gives up no LP when destroyed, and
-keeps defense-mode bonuses (a revealed midfielder card still gives +200 DEF to your defenders).
+scouted becomes **revealed**. So does an attack-mode card switched to defense. A revealed card
+is shown **face up to both players with a DEF marker, but stays in defense mode**. It still
+cannot attack or cover, still gives up no LP when destroyed, and keeps defense-mode bonuses (a
+revealed midfielder card still gives +200 DEF to your defenders).
 
-**Flipping.** During your summon phase you may flip a face-down or revealed card of yours to
-attack mode. It is free, but not for a card summoned this turn, and at most once per card per
-turn. There is no way back to defense mode. **Keepers can never flip** — they stay in defense
-mode for the whole match, revealed or not.
+**Switching positions.** Once per turn per card, during your summon phase, you may switch one of
+your cards. It is free.
+- **Defense → attack:** a face-down card flips up (**FLIP UP**); a revealed card goes back to
+  attack (**TO ATTACK**).
+- **Attack → defense** (**TO DEFENSE ▼**): the card becomes a **face-up defense** card, revealed
+  because the opponent has already seen it. From then on it plays like any revealed card: it
+  keeps defense bonuses, gives up no LP when destroyed, and can't attack or cover unless an
+  ability allows it.
+
+Switching is not allowed:
+- on the turn the card was played or substituted in;
+- after it attacked this turn;
+- while it is exhausted;
+- for traps, or for **keepers** (never, revealed or not);
+- during the half-time break;
+- on the opponent's turn.
+
+Click your card to switch it. Its ribbon shows only when the switch is legal. **The AI** switches
+too:
+- it flips revealed cards up to cover an open defender slot or to win a fight;
+- it pulls a weak or Tired attack-mode card back to defense when an enemy card would beat it next
+  turn (never the only card covering an open defender slot).
+
+---
+
+## Stamina
+
+Every field card enters the pitch with full stamina. Stamina goes by card type, whatever the
+slot:
+- strikers **4**;
+- midfielders **5**;
+- defenders **6**;
+- **Box-to-Box (Engine) 7**.
+
+**Keepers never tire.**
+
+| Drain | Stamina |
+|---|---|
+| End of its owner's turn (every field card on that pitch, one summoned this turn included) | −1 |
+| It attacks, when the attack resolves: a fight, a shot (Through ball, Direct Free Kick and Penalty included) or a wasted attack | −1 |
+| It covers, win or lose (a last-ditch tackle included) | −1 |
+| **Press** fires when it is summoned; **Counter-press** fires when it covers | −1 more |
+
+An attack cancelled by Offside never resolves, so it costs nothing. A destroyed card has left the
+pitch. Stamina never goes below 0.
+
+**Tired.** At **0** stamina a card is **Tired**: **−300 ATK and −300 DEF** in every fight, shot and
+cover. A non-keeper card in your keeper slot also loses 300 of its keeper DEF. A Tired card still
+counts toward your keeper's line bonus, and midfield control still uses its printed stats.
+
+On the match screen, Tired shows as:
+- a sweat drop, a red **TIRED** pill and red numbers on the card;
+- the lower numbers on its badges;
+- a **TIRED -300** tag in the combat overlay.
+
+**Rest.** Substitute a tired card: it goes back to your hand and comes back fully rested. At
+half-time (and before Extra Time) every card is reshuffled, so all stamina refills.
+
+**Hidden information.** You see the stamina pips of your own cards and of the opponent's face-up
+cards. The opponent's face-down cards show none.
 
 ---
 
@@ -286,7 +364,8 @@ At the start of your turn, after your normal draw, compare midfield power:
 If yours is **higher**, you **draw 1 extra card**. The ★ crown on the pitch shows who controls
 midfield (hidden while the opponent's midfielder slot holds a face-down card that has not been
 revealed, whatever its type), and the match shows **"MIDFIELD CONTROL +1 CARD"**. With
-**Metronome** in your midfielder slot you also get **+1 summon** that turn.
+**Metronome** in your midfielder slot you also get **+1 summon** that turn. Tired doesn't change
+midfield power.
 
 ---
 
@@ -317,8 +396,11 @@ Substitution is played in your **summon phase** and does not count toward the li
 - **Scout Report** — reveal one of the opponent's face-down cards. It stays revealed.
 - **Time Wasting** — only while you have more LP: the opponent may summon only **1** card on
   their next turn.
-- **Substitution** — return one of your pitch cards to your hand; your next summon into the
-  freed slot is free.
+- **Substitution** — the special sub. Return one of your pitch cards to your hand, then place a
+  card from your hand in that slot (through the mode picker). The placement costs **no summon**
+  and **no substitution** (SUBS), and the new card **may attack this turn**: it ignores the
+  wait-a-turn rule, but it can't switch position this turn. The freed slot takes exactly one
+  free placement, this turn only. The AI plays it for its most tired card.
 
 ---
 
@@ -433,10 +515,9 @@ hovering or zooming the card shows the rules text. Traps and strategy cards have
 - Zones.
 - Deck-out penalty.
 - Scout Report on set traps.
-- Substitution limits: the returned card can be summoned again the same turn, and Substitution
-  cannot be played in response to an attack.
+- Substitution played in response to an attack (it is a summon-phase card).
 - Manager's Challenge against VAR.
-- AI use of Last Defender Foul, Manager's Challenge, Scout Report, Substitution and mode flips.
+- AI use of Last Defender Foul, Manager's Challenge and Scout Report.
 
 ---
 
