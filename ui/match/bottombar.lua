@@ -1,5 +1,6 @@
 -- Match bottom area (y 540–800) except the hand: portrait, deck pile, toast stack,
--- SUMMONS pill, ATTACK/DEFENSE toggle, START ATTACK / END TURN and the hint line.
+-- SUMMONS pill, START ATTACK / END TURN and the hint line. (The mode is chosen on the slot:
+-- ui/match/modepicker.lua.)
 -- Clicks are mapped by Layout.buttonAt; this module only draws and animates.
 local Theme     = require("ui.theme")
 local Draw      = require("ui.kit.draw")
@@ -60,32 +61,13 @@ local function drawSummons(match)
     })
 end
 
-local function drawToggle(mode)
-    local r = Layout.bottom.toggle
-    Draw.sticker(r.x, r.y, r.w, r.h, {
-        r = r.h / 2, fill = { Theme.ink[1], Theme.ink[2], Theme.ink[3], 0.55 }, border = 3, shadow = 4,
-    })
-    for _, m in ipairs({ "attack", "defense" }) do
-        local h = Layout.toggleHalf(m)
-        local active = mode == m
-        if active then
-            Draw.roundedFill(h.x + 4, h.y + 4, h.w - 8, h.h - 8, (h.h - 8) / 2,
-                m == "attack" and Theme.grad.atk or Theme.grad.def, "v")
-        end
-        Draw.text(m == "attack" and "ATTACK" or "DEFENSE", h.x, h.y + (h.h - 18) / 2 - 2, h.w, "center", {
-            size = 18, color = { 1, 1, 1, active and 1 or 0.55 }, shadowY = active and 2 or 0,
-        })
-    end
-end
-
--- st = { mode = "attack"|"defense", toasts = Toasts instance, hint = string }
+-- st = { toasts = Toasts instance, hint = string }
 function BottomBar.draw(match, st)
     if not buttons then BottomBar.reset() end
     drawPortrait()
     drawDeck(#match.players.player.deck)
     if st.toasts then st.toasts:draw() end
     drawSummons(match)
-    drawToggle(st.mode)
     if match.phase == "summon" and match.activePlayer == "player" then buttons.startAttack:draw() end
     buttons.endTurn:draw()
     if st.hint and st.hint ~= "" then

@@ -41,7 +41,6 @@ Layout.bottom = {
     toastX = 208, toastW = 224, toastH = 28, toastGap = 6, toastBottomY = 640,
     hand        = { x = 444, y = 540, w = 512, h = 260, cx = 700, baseY = 766, maxHoverX = 990 },
     summons     = { x = 996, y = 552, w = 240, h = 34 },
-    toggle      = { x = 996, y = 598, w = 240, h = 42 },
     startAttack = { x = 996, y = 652, w = 240, h = 52 },
     endTurn     = { x = 996, y = 716, w = 240, h = 70 },
     hint        = { x = 300, y = 526, w = 680, h = 14 },
@@ -104,21 +103,13 @@ function Layout.trapSlots()
     return out
 end
 
--- One half of the ATTACK/DEFENSE segmented toggle.
-function Layout.toggleHalf(mode)
-    local t = Layout.bottom.toggle
-    local hw = t.w / 2
-    if mode == "attack" then return { x = t.x, y = t.y, w = hw, h = t.h } end
-    return { x = t.x + hw, y = t.y, w = hw, h = t.h }
-end
-
 -- Toast i (1 = newest, at the bottom of the stack).
 function Layout.toastRect(i)
     local b = Layout.bottom
     return { x = b.toastX, y = b.toastBottomY - (i - 1) * (b.toastH + b.toastGap), w = b.toastW, h = b.toastH }
 end
 
--- Button under (x, y): pause|music|log|endTurn|startAttack|modeAttack|modeDefense|nil.
+-- Button under (x, y): pause|music|log|endTurn|startAttack|nil.
 -- START ATTACK only exists during the summon phase.
 function Layout.buttonAt(x, y, phase)
     local T, B = Layout.top, Layout.bottom
@@ -127,8 +118,6 @@ function Layout.buttonAt(x, y, phase)
     if Layout.inRect(x, y, T.log)   then return "log" end
     if Layout.inRect(x, y, B.endTurn) then return "endTurn" end
     if phase == "summon" and Layout.inRect(x, y, B.startAttack) then return "startAttack" end
-    if Layout.inRect(x, y, Layout.toggleHalf("attack"))  then return "modeAttack" end
-    if Layout.inRect(x, y, Layout.toggleHalf("defense")) then return "modeDefense" end
     return nil
 end
 

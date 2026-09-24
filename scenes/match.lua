@@ -27,6 +27,7 @@ local Toasts        = require("ui.match.toasts")
 local Banner        = require("ui.match.banner")
 local Hover         = require("ui.match.hover")
 local Zoom          = require("ui.match.zoom")
+local ModePicker    = require("ui.match.modepicker")
 local Tween         = require("ui.kit.tween")
 local Confetti      = require("ui.match.confetti")
 local DebugLog      = require("ui.match.debuglog")
@@ -39,7 +40,9 @@ local handHit          = { cards = {}, order = {}, defs = {} }   -- from Hand.dr
 
 local selectedHandCard     = nil
 local selectedAttackerSlot = nil
-local selectedMode         = "attack"
+
+-- Mode picker (ui/match/modepicker.lua): open after a field card is dropped on a slot.
+local picker = nil
 
 -- Substitution two-step: after Substitution card returns a pitched card,
 -- set this so the next summon is free and targets the freed slot.
@@ -119,7 +122,7 @@ function Match.enter(matchStore, difficulty)
     store.aiDifficulty  = aiDifficulty
     selectedHandCard    = nil
     selectedAttackerSlot = nil
-    selectedMode        = "attack"
+    picker              = nil
     substitutionFreedSlot = nil
     scoutPending        = false
     scoutReveal         = nil
@@ -363,10 +366,10 @@ function Match.draw()
     }
     pitchHitboxes = Pitch.draw(match, interactionState, pitchAnims)
     TopBar.draw(match)
-    BottomBar.draw(match, { mode = selectedMode, toasts = toasts, hint = Match.hintText(match) })
+    BottomBar.draw(match, { toasts = toasts, hint = Match.hintText(match) })
     -- The prompt panel / match-end / half-time screen covers the hand: no dock magnification.
     local hmx, hmy = handMouseX, handMouseY
-    if promptWindow or winT or match.halfTimeBreak then hmx, hmy = nil, nil end
+    if promptWindow or winT or match.halfTimeBreak or picker then hmx, hmy = nil, nil end
     handHit = Hand.draw(match.players.player.hand,
         selectedHandCard and selectedHandCard.id or nil, hmx, hmy)
 
@@ -390,6 +393,9 @@ function Match.draw()
             slotType   = (fc.cardDef.type == "trap") and "trap" or fc.cardDef.type,
         }, fc.x, fc.y, { w = fc.w, h = fc.h })
     end
+
+    -- Mode picker, on the slot the selected card was dropped on
+    if picker then ModePicker.draw(picker, mouseX, mouseY) end
 
     -- Card zoom
     if zoomKey and hover.payload then
@@ -458,7 +464,7 @@ end
 -- The opponent's traps and unrevealed face-down cards are never zoomable (hidden information).
 function Match.hoverTarget(match)
     if activeCombat or activeTrapActiv or scoutReveal or pauseOpen or libraryOpen or debugLogOpen
-       or match.winner or store.coverWindow or store.trapWindow or match.halfTimeBreak then
+       or match.winner or store.coverWindow or store.trapWindow or match.halfTimeBreak or picker then
         return nil
     end
     local def, i, r = Hand.hit(handHit, mouseX, mouseY)
@@ -488,7 +494,9 @@ function Match.hintText(match)
     if activeCombat or match.halfTimeBreak or (store and (store.coverWindow or store.trapWindow)) then return "" end
     if match.activePlayer == "opponent" then return "Opponent is thinking..." end
     if match.phase == "summon" then
-        if selectedHandCard and selectedHandCard.ability == "SUBSTITUTION" then
+        if picker then
+            return "ATTACK (A) face-up  ·  DEFEND (D) face-down  ·  ESC to cancel"
+        elseif selectedHandCard and selectedHandCard.ability == "SUBSTITUTION" then
             return "SUBSTITUTION: click a pitched card to return it to hand"
         elseif substitutionFreedSlot then
             return "SUBSTITUTION: select a card and place it in the freed slot (free)"
@@ -497,9 +505,9 @@ function Match.hintText(match)
         elseif selectedHandCard and Phases.canKeeperSwap(match, selectedHandCard) then
             return "Click your GK to bring this keeper on (uses a summon)"
         elseif selectedHandCard then
-            return "Mode: " .. selectedMode:upper() .. "  ·  Click an empty slot to place  ·  ESC to cancel"
+            return "Click a glowing slot, then choose ATTACK or DEFEND  ·  ESC to cancel"
         end
-        return "Select a card  ·  M toggles ATTACK / DEFENSE  ·  START ATTACK or END TURN"
+        return "Select a card  ·  Click your card to switch position  ·  START ATTACK or END TURN"
     elseif match.phase == "attack" then
         if scoutPending then
             return "SCOUT REPORT: click an opponent face-down card to reveal  ·  ESC to cancel"
@@ -731,6 +739,15 @@ function Match.mousepressed(x, y, button)
     local match = store and store.match
     if not match or match.winner then return end
 
+    -- Mode picker open: a button places the card; a click outside cancels (the card stays
+    -- selected, nothing is placed); a click elsewhere on the panel does nothing.
+    if picker then
+        local a = ModePicker.actionAt(picker, x, y)
+        if a == "attack" or a == "defense" then Match.confirmPlace(a)
+        elseif a == "outside" then picker = nil end
+        return
+    end
+
     local btn = Layout.buttonAt(x, y, match.phase)
     if btn == "pause" then openPause(); return end
     if btn == "music" then Audio.toggleMute(); return end
@@ -757,8 +774,6 @@ function Match.mousepressed(x, y, button)
         Character.setState("attacking")
         return
     end
-    if btn == "modeAttack"  then selectedMode = "attack";  return end
-    if btn == "modeDefense" then selectedMode = "defense"; return end
 
     -- Hand card clicks
     if match.phase == "summon" or match.phase == "attack" then
@@ -858,48 +873,15 @@ function Match.mousepressed(x, y, button)
                 end
             end
 
-            -- Summon: card flies from the hand, then squash-pops into its slot
+            -- Place a hand card on a glowing slot of yours: a trap goes straight in
+            -- (face-down); a field card opens the mode picker on the slot.
             if match.phase == "summon" and selectedHandCard and slot.owner == "player" then
-                local r = Hand.rectOf(handHit, selectedHandCard.id)
-                local srcX = r and r.x or (x - slot.w / 2)
-                local srcY = r and r.y or (y - slot.h / 2)
-                local cardDefCopy = selectedHandCard
-                local mode = (selectedHandCard.type == "trap") and "defense" or selectedMode
-
-                local ok
-                if substitutionFreedSlot then
-                    -- Free summon for substitution replacement
-                    ok = store:freeSummon(selectedHandCard.id, slot.slotType, slot.slotIndex, mode)
-                    if ok then substitutionFreedSlot = nil end
+                if not Match.slotAccepts(match, slot) then return end
+                if ModePicker.needsPicker(selectedHandCard) then
+                    picker = ModePicker.open(selectedHandCard, slot, substitutionFreedSlot ~= nil)
                 else
-                    ok = store:summonCard(selectedHandCard.id, slot.slotType, slot.slotIndex, mode)
+                    Match.placeCard(selectedHandCard, slot, "defense", false)
                 end
-
-                if ok then
-                    Audio.play("card_summon")
-                    -- Traps fill the first free trap slot, not necessarily the one clicked.
-                    local idx, dest = slot.slotIndex, slot
-                    if slot.slotType == "trap" then
-                        idx  = #match.players.player.pitch.traps
-                        dest = Layout.trapSlot("player", idx)
-                    end
-                    local key = Pitch.slotKey("player", slot.slotType, idx)
-                    pitchAnims.hidden[key] = true
-                    local fc = { cardDef = cardDefCopy, x = srcX, y = srcY, w = dest.w, h = dest.h, mode = mode }
-                    flux.to(fc, 0.30, { x = dest.x, y = dest.y }):ease("quadout"):oncomplete(function()
-                        for ii, c in ipairs(flyingCards) do
-                            if c == fc then table.remove(flyingCards, ii); break end
-                        end
-                        pitchAnims.hidden[key] = nil
-                        local pop = { sx = 1, sy = 1 }
-                        pitchAnims.pop[key] = pop
-                        Tween.squash(pop, 0.35):oncomplete(function()
-                            if pitchAnims.pop[key] == pop then pitchAnims.pop[key] = nil end
-                        end)
-                    end)
-                    table.insert(flyingCards, fc)
-                end
-                selectedHandCard = nil
                 return
             end
 
@@ -989,9 +971,16 @@ function Match.keypressed(key)
     end
     if store and store.coverWindow then return nil end
 
+    -- Mode picker: A / D place the card, Esc cancels (the card stays selected).
+    if picker then
+        local a = ModePicker.keyAction(key)
+        if a == "attack" or a == "defense" then Match.confirmPlace(a)
+        elseif a == "cancel" then picker = nil end
+        return nil
+    end
+
     if key == "tab" then aiHandDebug = not aiHandDebug; return nil end
     if key == "l"   then debugLogOpen = not debugLogOpen; if debugLogOpen then debugLogScroll = 0 end; return nil end
-    if key == "m"   then selectedMode = selectedMode == "attack" and "defense" or "attack"; return nil end
 
     if key == "escape" then
         if scoutPending              then scoutPending = false; selectedHandCard = nil
@@ -1030,6 +1019,7 @@ function Match.openHalfTime()
     selectedAttackerSlot  = nil
     substitutionFreedSlot = nil
     scoutPending          = false
+    picker                = nil
     zoomKey               = nil
 end
 
@@ -1102,6 +1092,69 @@ function Match.spawnDrawAnim(isPlayer)
     end
     Audio.play("card_summon", 0.35)
     table.insert(drawAnims, da)
+end
+
+-- True when the selected hand card may be placed on this slot of yours now (it glows).
+function Match.slotAccepts(match, slot)
+    for _, s in ipairs(Match.getHighlightedSlots(match)) do
+        if s.owner == slot.owner and s.slotType == slot.slotType and s.slotIndex == slot.slotIndex then
+            return true
+        end
+    end
+    return false
+end
+
+-- Places cardDef from your hand on slot in mode: store:summonCard, or store:freeSummon for the
+-- Substitution card's free placement. The card flies from the hand, then squash-pops into its
+-- slot. A refusal is flashed. The hand selection is cleared either way. Returns true on success.
+function Match.placeCard(cardDef, slot, mode, free)
+    local match = store.match
+    local r = Hand.rectOf(handHit, cardDef.id)
+    local srcX = r and r.x or slot.x
+    local srcY = r and r.y or slot.y
+    local ok, err
+    if free then
+        ok, err = store:freeSummon(cardDef.id, slot.slotType, slot.slotIndex, mode)
+        if ok then substitutionFreedSlot = nil end
+    else
+        ok, err = store:summonCard(cardDef.id, slot.slotType, slot.slotIndex, mode)
+    end
+    selectedHandCard = nil
+    if not ok then
+        if err then Match.flash(err) end
+        return false
+    end
+    Audio.play("card_summon")
+    -- Traps fill the first free trap slot, not necessarily the one clicked.
+    local idx, dest = slot.slotIndex, slot
+    if slot.slotType == "trap" then
+        idx  = #match.players.player.pitch.traps
+        dest = Layout.trapSlot("player", idx)
+    end
+    local key = Pitch.slotKey("player", slot.slotType, idx)
+    pitchAnims.hidden[key] = true
+    local fc = { cardDef = cardDef, x = srcX, y = srcY, w = dest.w, h = dest.h, mode = mode }
+    flux.to(fc, 0.30, { x = dest.x, y = dest.y }):ease("quadout"):oncomplete(function()
+        for ii, c in ipairs(flyingCards) do
+            if c == fc then table.remove(flyingCards, ii); break end
+        end
+        pitchAnims.hidden[key] = nil
+        local pop = { sx = 1, sy = 1 }
+        pitchAnims.pop[key] = pop
+        Tween.squash(pop, 0.35):oncomplete(function()
+            if pitchAnims.pop[key] == pop then pitchAnims.pop[key] = nil end
+        end)
+    end)
+    table.insert(flyingCards, fc)
+    return true
+end
+
+-- The mode picker's choice: place the picked card in that mode.
+function Match.confirmPlace(mode)
+    local p = picker
+    picker = nil
+    if not p then return end
+    Match.placeCard(p.cardDef, p.slot, mode, p.free)
 end
 
 function Match.getCardInSlot(pitch, slot)

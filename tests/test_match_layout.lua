@@ -53,7 +53,7 @@ end)
 T.test("top bar and bottom area rects are on screen and disjoint", function()
     local T0, B = Layout.top, Layout.bottom
     local rects = { T0.youBar, T0.oppBar, T0.phasePill, T0.turnChip, T0.pause, T0.music, T0.log, T0.oppDeck,
-        B.portrait, B.deck, B.deckCount, B.summons, B.toggle, B.startAttack, B.endTurn, B.hint, B.hand,
+        B.portrait, B.deck, B.deckCount, B.summons, B.startAttack, B.endTurn, B.hint, B.hand,
         Layout.toastRect(1), Layout.toastRect(2), Layout.toastRect(3) }
     local screen = { x = 0, y = 0, w = 1280, h = 800 }
     for i = 1, #rects do
@@ -68,8 +68,8 @@ T.test("buttonAt maps clicks to actions", function()
     local x, y = c(B.endTurn);     T.eq(Layout.buttonAt(x, y, "attack"), "endTurn")
     x, y = c(B.startAttack);       T.eq(Layout.buttonAt(x, y, "summon"), "startAttack")
     T.eq(Layout.buttonAt(x, y, "attack"), nil)
-    x, y = c(Layout.toggleHalf("attack"));  T.eq(Layout.buttonAt(x, y, "summon"), "modeAttack")
-    x, y = c(Layout.toggleHalf("defense")); T.eq(Layout.buttonAt(x, y, "summon"), "modeDefense")
+    T.eq(Layout.bottom.toggle, nil, "the ATTACK/DEFENSE toggle is gone (mode picker)")
+    T.eq(Layout.toggleHalf, nil)
     x, y = c(T0.pause); T.eq(Layout.buttonAt(x, y, "summon"), "pause")
     x, y = c(T0.music); T.eq(Layout.buttonAt(x, y, "summon"), "music")
     x, y = c(T0.log);   T.eq(Layout.buttonAt(x, y, "summon"), "log")

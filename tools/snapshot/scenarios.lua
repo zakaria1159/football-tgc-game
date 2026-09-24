@@ -132,8 +132,8 @@ S.cards = {
     { 1.5, function(c) c.quit() end },
 }
 
--- Summon a keeper + one field card, start the attack phase, select an attacker,
--- end the turn and let the AI play.
+-- Summon a keeper (picker: D) + one field card (picker: A), start the attack phase, select an
+-- attacker, end the turn and let the AI play.
 local picked = {}
 S.summon = {
     { 0.3,  function() math.randomseed(7) end },
@@ -148,10 +148,12 @@ S.summon = {
     { 2.3,  function() move(640, 300) end },
     { 2.6,  function(c) c.snap("selected") end },
     { 2.7,  function() click(center(Layout.slot("player", "keeper", 0))) end },
+    { 2.8,  function() love.keypressed("d") end },
     { 3.5,  function(c) c.snap("placed") end },
     { 3.6,  function() if picked.field then move(handPoint(picked.field)) end end },
     { 3.9,  function() if picked.field then press(handPoint(picked.field)) end end },
     { 4.1,  function() local r = fieldSlot(picked.field); if r then click(center(r)) end end },
+    { 4.2,  function() if picked.field then love.keypressed("a") end end },
     { 4.8,  function(c) c.snap("two") end },
     { 4.9,  function() click(center(Layout.bottom.startAttack)) end },
     { 5.2,  function() local r = fieldSlot(picked.field); if r then click(center(r)) end end },
@@ -205,7 +207,8 @@ S.juice = {
         press(handPoint(firstOf({ "keeper" })))
     end },
     { 4.0,  function() click(center(Layout.slot("player", "keeper", 0))) end },
-    { 4.05, function() move(640, 300) end },                  -- keep the zoom off the pop shot
+    { 4.03, function() love.keypressed("d") end },            -- the mode picker
+    { 4.06, function() move(640, 300) end },                  -- keep the zoom off the pop shot
     { 4.9,  function(c) c.snap("popdone") end },
     { 5.0,  function(c) c.quit() end },
 }
@@ -581,7 +584,8 @@ S.abilities = {
 }
 
 -- Keeper substitution: Reliable Hands in goal (harness-only), The Wall in hand. Select it
--- (your GK glows, hint), click the GK: The Wall comes on, Reliable Hands goes to hand.
+-- (your GK glows, hint), click the GK: the picker opens with the keeper note; D brings The
+-- Wall on face-down, Reliable Hands goes to hand.
 local swapGk
 S.keeperswap = {
     { 0.3, function() math.randomseed(7) end },
@@ -597,9 +601,45 @@ S.keeperswap = {
     { 2.2, function() move(640, 300) end },
     { 2.6, function(c) c.snap("before") end },
     { 2.7, function() click(center(Layout.slot("player", "keeper", 0))) end },
-    { 2.8, function() move(640, 300) end },
-    { 3.6, function(c) c.snap("after") end },
-    { 3.8, function(c) c.quit() end },
+    { 2.9, function(c) c.snap("picker") end },
+    { 3.0, function() love.keypressed("d") end },
+    { 3.1, function() move(640, 300) end },
+    { 3.8, function(c) c.snap("after") end },
+    { 4.0, function(c) c.quit() end },
+}
+
+-- Card modes (spec A1/A2): select a striker, click a striker slot: the mode picker opens on
+-- the slot; A places it face-up. A harness-built attack-mode midfielder shows TO DEFENSE;
+-- clicking it switches it to face-up defense (DEF pill, no ribbon). A keeper's picker shows
+-- the note; Esc cancels and the keeper stays selected.
+local modeCard, modeKeeper
+S.modes = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, kickOff },
+    { 1.5, function()
+        store().match.players.player.pitch.midfielder = pitched("mid-box-to-box", "midfielder")
+        modeCard = defById("str-poacher")
+        table.insert(hand(), modeCard)
+        modeKeeper = firstOf({ "keeper" })
+    end },
+    { 1.8, function() move(handPoint(modeCard)) end },
+    { 2.0, function() press(handPoint(modeCard)) end },
+    { 2.2, function() click(center(Layout.slot("player", "striker", 1))) end },
+    { 2.6, function(c) c.snap("picker") end },
+    { 2.7, function() love.keypressed("a") end },
+    { 2.8, function() move(640, 60) end },
+    { 3.5, function(c) c.snap("placed") end },
+    { 3.6, function() click(center(Layout.slot("player", "midfielder", 0))) end },
+    { 3.7, function() move(640, 60) end },
+    { 4.1, function(c) c.snap("switched") end },
+    { 4.2, function() move(handPoint(modeKeeper)) end },
+    { 4.4, function() press(handPoint(modeKeeper)) end },
+    { 4.6, function() click(center(Layout.slot("player", "keeper", 0))) end },
+    { 5.0, function(c) c.snap("keeper") end },
+    { 5.1, function() love.keypressed("escape") end },
+    { 5.2, function() move(640, 60) end },
+    { 5.6, function(c) c.snap("cancel") end },
+    { 5.8, function(c) c.quit() end },
 }
 
 return S
