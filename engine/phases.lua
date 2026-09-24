@@ -373,7 +373,7 @@ function Phases.attack(matchState, attackerSlot, defenderSlot)
             matchState.players[matchState.activePlayer].pitch.throughBallUsed = true
             Resolver.trigger(matchState, matchState.activePlayer, playmaker, "THROUGH_BALL")
         end
-        return Phases._shootAtGoal(matchState, attacker, attackerSlot, opponentId)
+        return Phases._shootAtGoal(matchState, attacker, attackerSlot, opponentId, playmaker ~= nil)
     end
     if defender then
         return Phases._doCombat(matchState, attacker, defender, attackerSlot, defenderSlot, opponentId)
@@ -384,7 +384,8 @@ end
 
 -- An attack that reached the goal. The midfielder slot can't shoot (wasted); any other
 -- card shoots at the keeper, or scores an open goal when the keeper slot is empty.
-function Phases._shootAtGoal(matchState, attacker, attackerSlot, opponentId)
+-- oneOnOne: a Through ball shot — the keeper's penalty DEF (base DEF; Fortress: full DEF).
+function Phases._shootAtGoal(matchState, attacker, attackerSlot, opponentId, oneOnOne)
     if attackerSlot.type == "midfielder" then
         attacker.exhausted      = true
         attacker.usedAsAttacker = true  -- a wasted attack still counts (keeper +150 lost)
@@ -392,7 +393,7 @@ function Phases._shootAtGoal(matchState, attacker, attackerSlot, opponentId)
         return { outcome = "wasted", reason = "midfielder_keeper" }
     end
     local keeper = matchState.players[opponentId].pitch.keeper
-    return Phases._goalAttempt(matchState, attacker, keeper, attackerSlot, opponentId)
+    return Phases._goalAttempt(matchState, attacker, keeper, attackerSlot, opponentId, oneOnOne)
 end
 
 -- Called after the defending player decides to cover (or not).
@@ -555,7 +556,7 @@ function Phases._eligibleCoverers(pitch, emptySlot)
 end
 
 -- Full combat resolution between attacker and defender. covering: the defender covers an
--- empty slot (Counter-press).
+-- empty slot (Counter-press; a lost cover is a last-ditch tackle, outcome "tackled").
 function Phases._doCombat(matchState, attacker, defender, attackerSlot, defenderSlot, opponentId, covering)
     attacker.usedAsAttacker = true
 
@@ -577,7 +578,18 @@ function Phases._doCombat(matchState, attacker, defender, attackerSlot, defender
     -- defense bonuses kept). Attackers are always in attack mode.
     if defender.mode == "defense" then defender.revealed = true end
 
-    if result.outcome == "defender_destroyed" then
+    if result.outcome == "defender_destroyed" and covering then
+        -- Last-ditch tackle: a coverer that loses is only exhausted (its cover lock, if any,
+        -- was set by Phases.resolveCover). No LP damage, and the attack stops here.
+        attacker.exhausted = true
+        defender.exhausted = true
+        result.outcome           = "tackled"
+        result.defenderDestroyed = false
+        result.damage            = 0
+        State.log(matchState, T.EventType.COVER,
+            { coverer = defenderSlot, outcome = "tackled", margin = result.margin })
+
+    elseif result.outcome == "defender_destroyed" then
         attacker.exhausted = true
         Phases._destroyCard(matchState, opponentId, defenderSlot.type, defenderSlot.index or 0)
         State.log(matchState, T.EventType.DEFENDER_DESTROY, { slot = defenderSlot })

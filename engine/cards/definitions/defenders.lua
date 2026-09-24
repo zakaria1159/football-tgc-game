@@ -4,7 +4,7 @@ return {
       abilityText="On a tie, attacking or defending, The Rock survives; only the other card is destroyed." },
     { id="def-destroyer",          name="The Destroyer",        type="defender",   rarity="common",   stats={ atk=900,  def=1900 },
       keyword="HARD_TACKLE", keywordName="Hard tackle",
-      abilityText="A card that attacks The Destroyer and is not destroyed (it won, or Offside cancelled the attack) can't act on its owner's next turn." },
+      abilityText="A card that attacks it and isn't destroyed can't act on its owner's next turn." },
     { id="def-ball-playing",       name="Ball-Playing Defender",type="defender",   rarity="common",   stats={ atk=1400, def=1700 },
       keyword="BUILD_UP",    keywordName="Build-up",
       abilityText="When it wins a fight (destroys the other card and survives), you draw 1 card." },

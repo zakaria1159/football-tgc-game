@@ -105,6 +105,9 @@ function Toasts.describe(entry)
         return string.upper(p.slot and p.slot.type or "card") .. " destroyed", "info"
     end
     if t == "cover" then
+        if p.outcome == "tackled" then
+            return "LAST-DITCH TACKLE by " .. string.upper(p.coverer and p.coverer.type or "?"), "info"
+        end
         return "COVER by " .. string.upper(p.coverer and p.coverer.type or "?"), "info"
     end
     if t == "shot" then

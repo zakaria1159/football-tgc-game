@@ -133,6 +133,9 @@ function Store:declareAttack(attackerSlot, defenderSlot)
         end
     end
 
+    -- Through ball: a one-on-one shot faces the keeper's penalty DEF.
+    if Phases._throughBallFor(match, attackerSlot, defenderSlot) then snapOpts = { penalty = true } end
+
     local snap = self:_snapshotAttack(attackerSlot, snapDefSlot, snapOpts)
 
     -- Last Defender Foul is judged on the board before the attack.
@@ -667,7 +670,7 @@ end
 --                  an Off the line keeper).
 --   opts.fight:    the declared slot is empty and a cover may still happen: the attacker's
 --                  fight ATK (the cover window shows it).
---   opts.penalty:  a Penalty (the keeper's penalty DEF).
+--   opts.penalty:  a Penalty or a Through ball shot (the keeper's penalty DEF).
 -- Otherwise a keeper target, or an empty non-striker slot (open goal), is a shot.
 -- Each side: { name, type, mode, wasHidden, atk, def, atkBonus, defBonus, isKeeper,
 --              atkTags, defTags } — tags { keyword, name, amount } from ability parts.

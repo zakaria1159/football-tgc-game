@@ -78,43 +78,87 @@ end
 
 -- ── Cover decision ────────────────────────────────────────────────────────────
 
+-- What letting this attack through would cost the defending side (defenderId): the LP of
+-- the goal it scores, or of the fight it wins at the next occupied line, and whether that
+-- fight costs a card. The defending side knows its own face-down cards.
+-- Returns lp, losesCard.
+function AI.letThroughCost(match, defenderId, attackerSlot, emptySlot)
+    local aPitch   = match.players[State.other(defenderId)].pitch
+    local dPitch   = match.players[defenderId].pitch
+    local attacker = Phases._getSlot(aPitch, attackerSlot)
+    if not attacker then return 0, false end
+    local nextSlot = Phases._nextOccupiedLine(dPitch, emptySlot)
+    if not nextSlot or nextSlot.type == "keeper" then
+        if attackerSlot.type == "midfielder" then return 0, false end   -- can't shoot
+        local r = Combat.resolveShot(attacker, dPitch.keeper, dPitch, aPitch, false, attackerSlot.type)
+        return r.damage or 0, false
+    end
+    local target = Phases._getSlot(dPitch, nextSlot)
+    local r = Combat.resolve(attacker, target, attackerSlot.type, nextSlot.type, aPitch, dPitch)
+    if r.outcome == "defender_destroyed" then
+        return target.mode == "defense" and 0 or r.margin, true
+    elseif r.outcome == "tie" then
+        return 0, not Resolver.survivesTie(target)
+    end
+    return 0, false
+end
+
+-- Cover decision. Easy never covers. Medium and hard cover when a coverer wins the fight,
+-- or when letting the attack through would cost LP or a card: a lost cover is a last-ditch
+-- tackle (the coverer is only exhausted and the attack stops). Coverer preference:
+--   1. one that wins (an Immovable tie counts);  2. a loser covering doesn't lock (Sweeper,
+--   Off the line);  3. the lowest-value loser (ATK + DEF);  4. a tie that trades cards.
+-- The Off the line keeper covers only when no other card can.
 function AI.decideCover(store)
     local cw = store.coverWindow
     if not cw or #cw.eligibleCoverers == 0 then return nil end
 
     local match      = store.match
     local activeId   = match.activePlayer
-    local defenderId = activeId == "player" and "opponent" or "player"
+    local defenderId = State.other(activeId)
     if match.coverUsed[defenderId] then return nil end
 
     local difficulty = store.aiDifficulty or "medium"
     if difficulty == "easy" then return nil end
 
-    local atkStat  = cw.attackerSnap and (cw.attackerSnap.atk or 0) or 0
+    local aPitch   = match.players[activeId].pitch
     local ownPitch = match.players[defenderId].pitch
+    local attacker = Phases._getSlot(aPitch, cw.attackerSlot)
+    if not attacker then return nil end
 
-    -- Best coverer by its covering DEF (Counter-press, Last man, midfielder bonus). On equal
-    -- DEF prefer one that covering doesn't lock (Sweeper, Off the line). A keeper (Off the
-    -- line) only covers when it wins outright: a lost or tied cover would cost the keeper.
-    local best, bestDef = nil, -1
+    local fieldCoverers = false
     for _, cov in ipairs(cw.eligibleCoverers) do
-        local d = Combat.defendStat(cov.card, cov.type, ownPitch, true)
-        local usable = cov.type ~= "keeper" or d > atkStat
-        if usable and (d > bestDef or (d == bestDef and best
-                and Resolver.coverLocks(best.card) and not Resolver.coverLocks(cov.card))) then
-            best, bestDef = cov, d
+        if cov.type ~= "keeper" then fieldCoverers = true end
+    end
+
+    local function value(card)
+        local st = card.definition.stats or {}
+        return (st.atk or 0) + (st.def or 0)
+    end
+
+    local best, bestRank, bestValue
+    for _, cov in ipairs(cw.eligibleCoverers) do
+        if cov.type ~= "keeper" or not fieldCoverers then
+            local r = Combat.resolve(attacker, cov.card, cw.attackerSlot.type, cov.type,
+                                     aPitch, ownPitch, { covering = true })
+            local rank
+            if r.outcome == "attacker_exhausted"
+               or (r.outcome == "tie" and Resolver.survivesTie(cov.card)) then rank = 1
+            elseif r.outcome == "defender_destroyed" then          -- last-ditch tackle
+                rank = Resolver.coverLocks(cov.card) and 3 or 2
+            else rank = 4 end                                       -- a tie: both destroyed
+            local v = value(cov.card)
+            if not best or rank < bestRank or (rank == bestRank and v < bestValue) then
+                best, bestRank, bestValue = cov, rank, v
+            end
         end
     end
     if not best then return nil end
 
-    if difficulty == "medium" then
-        if atkStat - bestDef <= 0 then
-            return { type = best.type, index = best.index }
-        end
-        return nil
+    if bestRank > 1 then
+        local lp, losesCard = AI.letThroughCost(match, defenderId, cw.attackerSlot, cw.emptySlot)
+        if lp <= 0 and not losesCard then return nil end
     end
-
-    -- Hard: always cover (even a losing cover blocks damage this turn)
     return { type = best.type, index = best.index }
 end
 
@@ -439,13 +483,14 @@ function AI._pickTarget(match, attacker, difficulty)
     end
 
     -- This attacker's shot from here: its shot ATK against the keeper's visible DEF
-    -- (an empty keeper slot always scores).
-    local function shotScores()
+    -- (an empty keeper slot always scores). oneOnOne: a Through ball shot faces the
+    -- keeper's penalty DEF (base DEF; Fortress: full DEF).
+    local function shotScores(oneOnOne)
         if not attacker.card then return false end
         local k   = dPitch.keeper
         local atk = Combat.attackStat(attacker.card, attacker.slotType, oPitch, dPitch, { keeper = k })
         if not k then return true end
-        return atk > Combat.keeperDef(k, dPitch, false, true)
+        return atk > Combat.keeperDef(k, dPitch, oneOnOne, true)
     end
 
     -- Beat the man: an empty slot can't be covered, so going through it is a clean shot.
@@ -465,7 +510,7 @@ function AI._pickTarget(match, attacker, difficulty)
 
     -- Through ball: past a full defence, straight at the keeper when the shot scores.
     if #empty == 0 and attacker.slotType == "striker" and Resolver.throughBall(oPitch)
-       and shotScores() then
+       and shotScores(true) then
         return { type = "keeper", index = 0 }
     end
 
@@ -551,7 +596,8 @@ function AI.estimateAttackDamage(match, ownerId, attackerSlot, defenderSlot)
     if defenderSlot.type == "keeper" then
         local atk = Combat.attackStat(attacker, attackerSlot.type, aPitch, dPitch, { keeper = target })
         if not target then return atk end
-        return math.max(0, atk - Combat.keeperEffectiveDef(target, dPitch))
+        local oneOnOne = Phases._throughBallFor(match, attackerSlot, defenderSlot) ~= nil
+        return math.max(0, atk - (Combat.keeperDef(target, dPitch, oneOnOne)))
     end
     if not target or target.mode == "defense" then return 0 end
     local atk = Combat.attackStat(attacker, attackerSlot.type, aPitch, dPitch)

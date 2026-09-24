@@ -157,7 +157,8 @@ card is. The bonus still applies in combat.
 | ATK < DEF | Destroyed | Survives (revealed if face-down) | Attacker's owner loses DEF − ATK |
 
 Destroyed cards are gone for the rest of the match. Abilities can change these numbers and
-results (for example **Immovable** on a tie); see **Abilities**.
+results (for example **Immovable** on a tie); see **Abilities**. A **cover** that loses is a
+**last-ditch tackle** instead (see **Empty Slots**).
 
 **Exhaustion.** A card that attacked is exhausted until the end of its owner's turn, so each
 card attacks once per turn. A card that **covered** cannot act on its owner's next turn (not a
@@ -194,8 +195,19 @@ When you attack an **empty defender or midfielder slot**, the defending player m
 - **Intercept**, **Sweeper** and **Off the line** add cover options; a **Beat the man** attack
   can't be covered.
 
-A cover is a normal fight against the coverer. The coverer cannot act on its owner's next turn
-(not a Sweeper or an Off the line keeper).
+A cover is a fight against the coverer, resolved as usual — except when the **coverer loses**:
+that is a **last-ditch tackle**.
+
+| Cover result | Attacker | Coverer | LP |
+|---|---|---|---|
+| Coverer loses (ATK > DEF) — **last-ditch tackle** | Exhausted; the attack **stops** (no advance, no shot) | **Exhausted, not destroyed** | None |
+| Tie | Destroyed | Destroyed | None |
+| Coverer wins (ATK < DEF) | Destroyed | Survives | Attacker's owner loses DEF − ATK |
+
+Immovable, Hard tackle, Build-up and Counter-press work as in any fight (a tackled coverer
+destroyed nothing, so Build-up doesn't draw). A tackle destroys no card and scores no goal, so
+Red Card, VAR and Last Defender Foul don't fire. Whatever the result, the coverer cannot act on
+its owner's next turn (not a Sweeper or an Off the line keeper).
 
 If they **let it through** (or cannot cover), the attacker **advances**: from an empty
 midfielder slot to their first defender, otherwise to the goal; from an empty defender slot
@@ -205,8 +217,8 @@ straight to the goal. A midfielder-slot card attacking an empty midfielder slot 
 
 ## Shots, the Keeper and the Open Goal
 
-- **Every attack that reaches the keeper is a shot.** A shot never destroys the keeper (only a
-  lost **Off the line** cover fight can).
+- **Every attack that reaches the keeper is a shot.** A shot never destroys the keeper (nor does
+  a lost **Off the line** cover: that is a last-ditch tackle).
 - **Shot ATK** = the shooter's ATK against the keeper's **effective DEF**. A **striker-slot**
   shooter adds +200 if your midfielder card is in attack mode; other shooters get no bonus.
 
@@ -215,6 +227,9 @@ straight to the goal. A midfielder-slot card attacking an empty midfielder slot 
 | ATK > effective DEF | **Goal**: the defender loses ATK − DEF LP; the keeper is exhausted |
 | ATK = effective DEF | No damage; the keeper is exhausted |
 | ATK < effective DEF | **Save**: no damage, nothing destroyed |
+
+A **Through ball** shot (past a full defender line) is **one-on-one**: like a Penalty, it faces
+the keeper's **base DEF** (plus Safe hands) — or its full effective DEF with **Fortress**.
 
 The shooter is exhausted either way. Shot abilities: **Clinical**, **Instinct**, **Opportunist**,
 **Punch clear**, **Safe hands**, **Fortress** (see **Abilities**).
@@ -265,7 +280,9 @@ revealed, whatever its type), and the match shows **"MIDFIELD CONTROL +1 CARD"**
 | You destroy a defense-mode card (face-down or revealed) | None |
 | Your attacking card loses a fight | You lose DEF − ATK |
 | Tie | None |
+| A covering card loses (last-ditch tackle) | None — the coverer is exhausted, the attack stops |
 | Goal | The defender loses ATK − keeper effective DEF |
+| Through ball goal (one-on-one) | The defender loses ATK − keeper base DEF (effective DEF with Fortress) |
 | Open goal | The defender loses the full shot ATK |
 
 ---
@@ -305,7 +322,8 @@ is cancelled; the attacker is exhausted but not destroyed. Not against an **Aeri
 Cancelling an attack on **The Destroyer** also triggers **Hard tackle**.
 
 **Red Card** (uncommon, max 2) — when an opponent's attack **destroys** one of your cards (a win,
-not a tie — cover fights included): the attacking card is destroyed too.
+not a tie; a won cover fight is a last-ditch tackle and destroys nothing): the attacking card is
+destroyed too.
 
 **VAR** (rare, max 1) —
 1. On **any goal** against you (shot, open goal, after a let-through, Direct Free Kick,
@@ -357,7 +375,7 @@ hovering or zooming the card shows the rules text. Traps and strategy cards have
 | Box-to-Box | **Engine** | In your midfielder slot, in either mode: **+100 ATK** to your striker-slot cards and **+100 DEF** to your defender-slot cards, instead of the normal +200. |
 | Deep-Lying Playmaker | **Metronome** | In your midfielder slot: when you control midfield at the start of your turn, you also get **+1 summon** that turn. |
 | Pressing Monster | **Counter-press** | **+300 DEF** when it covers. |
-| Creative Playmaker | **Through ball** | While it is on your pitch, once per turn one of your striker-slot cards may shoot at the keeper slot even when both enemy defender slots are filled (a normal shot vs effective DEF). |
+| Creative Playmaker | **Through ball** | While it is on your pitch, once per turn one of your striker-slot cards may shoot at the keeper slot even when both enemy defender slots are filled. That shot is **one-on-one**: the keeper's base DEF, like a Penalty (Fortress: full DEF). |
 | Direct Support | **Overlap** | In your midfielder slot in attack mode, your striker-slot cards get **+300 ATK** instead of +200. |
 
 ### Defenders
@@ -378,7 +396,7 @@ hovering or zooming the card shows the rules text. Traps and strategy cards have
 |---|---|---|
 | The Wall | **Fortress** | Penalties face its full effective DEF instead of its base DEF. |
 | Iron Fists | **Punch clear** | After it saves a shot, the shooter can't act on its owner's next turn. |
-| Sweeper Keeper | **Off the line** | May cover an empty defender slot (your one cover this turn) in either mode, fighting with its own DEF (no line bonuses). It isn't locked by covering and stays in goal. If it loses the cover fight it is destroyed like any coverer. |
+| Sweeper Keeper | **Off the line** | May cover an empty defender slot (your one cover this turn) in either mode, fighting with its own DEF (no line bonuses). It isn't locked by covering and stays in goal. If it loses the cover fight it is a last-ditch tackle: the keeper is only exhausted and the attack stops. |
 | Reliable Hands | **Safe hands** | **+100 DEF** for each save it made this half (max +300), Penalties included. |
 
 ---

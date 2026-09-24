@@ -54,12 +54,12 @@ T.test("bug fix: after LET THROUGH, the human gets a VAR window for the AI's goa
     T.eq(m.players.opponent.pitch.strikers[1], nil)
 end)
 
-T.test("bug fix: a cover that loses its card gives the human a Red Card window", function()
+T.test("a lost cover (last-ditch tackle) destroys nothing: no Red Card window", function()
     local m, s = coverBoard("opponent")
     H.trap(m, "player", "trap-red-card")
     s:declareAttack(H.slot("striker", 1), H.slot("defender", 1))
-    s:resolveCover(H.slot("midfielder"))
-    T.ok(s.trapWindow, "window open"); T.eq(s.trapWindow.type, "post_destroy")
+    T.eq(s:resolveCover(H.slot("midfielder")).outcome, "tackled")
+    T.eq(s.trapWindow, nil)
 end)
 
 T.test("bug fix: the AI's VAR also overturns a Direct Free Kick goal", function()

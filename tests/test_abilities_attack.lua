@@ -67,11 +67,11 @@ local function fullDefence()
     return m, H.store(m)
 end
 
-T.test("Through ball: a striker may shoot past a full defence (a normal shot vs effective DEF)", function()
+T.test("Through ball: a striker may shoot past a full defence (one-on-one: base DEF)", function()
     local m, s = fullDefence()
     local cp = H.place(m, "player", "midfielder", 0, H.kw("THROUGH_BALL", "midfielder", 1600, 1550), "defense")
     local r = s:declareAttack(H.slot("striker", 1), H.slot("keeper"))
-    T.eq(r.outcome, "damage"); T.eq(r.damage, 300)                     -- 2400 vs 1500 + 600
+    T.eq(r.outcome, "damage"); T.eq(r.damage, 900)                     -- 2400 vs 1500
     local t = H.triggers(m)
     T.eq(#t, 1); T.eq(t[1].keyword, "THROUGH_BALL"); T.eq(t[1].card, cp.definition.id)
 end)

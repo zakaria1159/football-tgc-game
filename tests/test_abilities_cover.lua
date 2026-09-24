@@ -85,13 +85,13 @@ T.test("Off the line: the keeper covers an empty defender slot with its DEF and 
     T.eq(#t, 1); T.eq(t[1].keyword, "OFF_THE_LINE")
 end)
 
-T.test("Off the line: a keeper that loses the cover fight is destroyed like any coverer", function()
-    local m, s = keeperBoard(2000, H.kw("OFF_THE_LINE", "keeper", 400, 1800))
+T.test("Off the line: a keeper that loses the cover fight is only exhausted (last-ditch tackle)", function()
+    local m, s, k = keeperBoard(2000, H.kw("OFF_THE_LINE", "keeper", 400, 1800))
     T.eq(s:declareAttack(H.slot("striker", 1), H.slot("defender", 1)).outcome, "cover_needed")
     local r = s:resolveCover(H.slot("keeper"))
-    T.eq(r.outcome, "defender_destroyed")
-    T.eq(m.players.opponent.pitch.keeper, nil)
-    T.eq(m.players.opponent.lp, 4000)                  -- a defense-mode card: no LP damage
+    T.eq(r.outcome, "tackled")
+    T.eq(m.players.opponent.pitch.keeper, k); T.eq(k.exhausted, true)
+    T.eq(m.players.opponent.lp, 4000)
 end)
 
 T.test("Off the line: other keepers never cover", function()

@@ -291,7 +291,16 @@ S.combat = {
     { 12.8, function(c) c.snap("opp_open") end },
     { 12.9, function() love.keypressed("space") end },
     { 13.2, function(c) c.snap("dismissed") end },
-    { 13.5, function(c) c.quit() end },
+    -- A lost cover: last-ditch tackle (both exhausted, nothing destroyed, no LP)
+    { 13.3, combat({
+        attacker = snapFrom("str-clinical-finisher"),
+        defender = snapFrom("mid-pressing-monster", { def = 1700, defBonus = 300,
+            defTags = { { keyword = "COUNTER_PRESS", name = "Counter-press", amount = 300 } } }),
+        outcome = "tackled", margin = 600, damage = 0, activePlayer = "player",
+        abilities = { "COUNTER_PRESS" } }) },
+    { 15.4, function(c) c.snap("tackle") end },
+    { 15.5, function() love.keypressed("space") end },
+    { 15.7, function(c) c.quit() end },
 }
 
 -- Trap activation: flash, flip, stamp, dust, full; then an opponent trap.

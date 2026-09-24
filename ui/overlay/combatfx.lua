@@ -141,6 +141,8 @@ function Fx.result(outcome, damage)
         return { text = "EXHAUSTED", fill = O.orange, textColor = W, shadow = true }
     elseif outcome == "attacker_exhausted" then
         return { text = "BLOCKED", fill = O.blue, textColor = W, shadow = true }
+    elseif outcome == "tackled" then   -- a lost cover: the coverer survives, the attack stops
+        return { text = "LAST-DITCH TACKLE", fill = O.blue, textColor = W, shadow = true }
     elseif outcome == "save" then
         return { text = "KEEPER SAVES", fill = O.blue, textColor = W, shadow = true }
     elseif outcome == "tie" then
@@ -154,7 +156,7 @@ function Fx.fates(outcome)
     if outcome == "defender_destroyed" then return nil, "destroyed" end
     if outcome == "defender_exhausted" then return nil, "exhausted" end
     if outcome == "attacker_exhausted" then return "exhausted", nil end
-    if outcome == "tie" then return "exhausted", "exhausted" end
+    if outcome == "tie" or outcome == "tackled" then return "exhausted", "exhausted" end
     return nil, nil
 end
 

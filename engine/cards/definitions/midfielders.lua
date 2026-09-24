@@ -10,7 +10,7 @@ return {
       abilityText="+300 DEF when it covers an empty slot." },
     { id="mid-creative-playmaker",  name="Creative Playmaker",    type="midfielder", rarity="rare",     stats={ atk=1600, def=1550 },
       keyword="THROUGH_BALL",  keywordName="Through ball",
-      abilityText="Once per turn, one of your striker-slot cards may shoot at the enemy keeper even when both enemy defender slots are filled." },
+      abilityText="Once per turn, one of your striker-slot cards may shoot at the enemy keeper even when both enemy defender slots are filled. That shot is one-on-one: the keeper uses its base DEF." },
     { id="mid-direct-support",      name="Direct Support",        type="midfielder", rarity="common",   stats={ atk=1650, def=1450 },
       keyword="OVERLAP",       keywordName="Overlap",
       abilityText="In your midfielder slot in attack mode, your striker-slot cards get +300 ATK instead of +200." },
