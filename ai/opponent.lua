@@ -36,6 +36,17 @@ function AI.executeAction(store, action)
     elseif action.type == "summon" then
         store:summonCard(action.cardId, action.slotType, action.slotIndex, action.mode)
 
+    elseif action.type == "flip" then
+        -- Face-up defence -> attack mode (Phases.changeMode). Refused: tag the card so
+        -- _planFlips doesn't plan the same flip again this turn.
+        local ok, err = store:changeMode(action.slotType, action.slotIndex)
+        if not ok then
+            local card = Phases._getSlot(store.match.players.opponent.pitch,
+                                         { type = action.slotType, index = action.slotIndex })
+            if card then card.aiRefusedFlipTag = AI.planTag(store.match) end
+            return false, nil, err or "flip refused"
+        end
+
     elseif action.type == "setTrap" then
         store:summonCard(action.cardId, "trap", 0, "defense")
 
@@ -181,6 +192,9 @@ function AI._planSummons(match)
     }
     for i = 1, C.PITCH.MAX_DEFENDERS do used.defenders[i] = pitch.defenders[i] ~= nil end
     for i = 1, C.PITCH.MAX_STRIKERS  do used.strikers[i]  = pitch.strikers[i]  ~= nil end
+    -- Cover bookkeeping for _pickBestSlot / _planFlips: does a ready face-up card already
+    -- cover an empty defender slot?
+    used.coverer = AI._hasDefenderCoverer(pitch)
 
     -- Separate hand into groups
     local hand = {}
@@ -243,6 +257,10 @@ function AI._planSummons(match)
                 elseif slot.slotType == "midfielder" then used.midfielder              = true
                 elseif slot.slotType == "defender"   then used.defenders[slot.slotIndex] = true
                 end
+                if mode == "attack" and (slot.slotType == "midfielder"
+                   or (slot.slotType == "defender" and AI._coverSpecialist(cardDef))) then
+                    used.coverer = true
+                end
                 summonLeft = summonLeft - 1
             end
         end
@@ -250,7 +268,52 @@ function AI._planSummons(match)
         ::continue::
     end
 
+    -- Flips after the summons, so they see the slots this turn's summons fill.
+    for _, f in ipairs(AI._planFlips(match, used)) do table.insert(actions, f) end
+
     return actions
+end
+
+-- Cover specialists: Sweeper (Libero) and Intercept (Pressing Back) cover an empty defender
+-- slot from a defender slot, which needs attack mode. cardDef: a hand card or a pitched card.
+function AI._coverSpecialist(cardDef)
+    local kw = cardDef.keyword or (cardDef.definition and cardDef.definition.keyword)
+    return kw == "SWEEPER" or kw == "INTERCEPT"
+end
+
+-- True when a defender slot is empty in `used` (see _planSummons).
+function AI._defenderGap(used)
+    for i = 1, C.PITCH.MAX_DEFENDERS do
+        if not used.defenders[i] then return true end
+    end
+    return false
+end
+
+-- True when a ready card on pitch can cover an empty defender slot (Phases._eligibleCoverers):
+-- an attack-mode midfielder, an attack-mode Intercept/Sweeper defender, an Off the line keeper.
+function AI._hasDefenderCoverer(pitch)
+    local function ready(c) return c and not c.exhausted and not c.cannotActNextTurn end
+    local mid = pitch.midfielder
+    if ready(mid) and mid.mode == "attack" then return true end
+    for i = 1, C.PITCH.MAX_DEFENDERS do
+        local d = pitch.defenders[i]
+        if ready(d) and d.mode == "attack" and Resolver.canCoverSlot(d, "defender", "defender") then
+            return true
+        end
+    end
+    local k = pitch.keeper
+    return ready(k) and Resolver.canCoverSlot(k, "keeper", "defender") or false
+end
+
+-- May the AI flip this card of its own now? Mirrors Card.canFlip (ui/card.lua) and the
+-- checks of Phases.changeMode: summon phase, never a keeper or trap, defense mode, not
+-- exhausted, not summoned or already flipped this turn, not refused this turn.
+function AI.canFlip(match, card, slotType)
+    if not card or match.phase ~= "summon" then return false end
+    if slotType == "keeper" or slotType == "trap" then return false end
+    if card.mode ~= "defense" or card.exhausted then return false end
+    if card.summonedThisTurn or card.modeChanged then return false end
+    return card.aiRefusedFlipTag ~= AI.planTag(match)
 end
 
 -- Pick the slot for a field card and the mode to play it in. Defender- and
@@ -275,6 +338,14 @@ function AI._pickBestSlot(cardDef, used)
     end
     local mid = (not used.midfielder) and { slotType = "midfielder", slotIndex = 0 } or nil
 
+    -- Cover heuristic: a face-down card can't cover. A card in the midfielder slot goes in
+    -- face-up when a defender slot is open and no face-up card covers it yet; Sweeper and
+    -- Intercept always go in face-up (their ability is covering).
+    local specialist = AI._coverSpecialist(cardDef)
+    local needCover  = used.defenders ~= nil and AI._defenderGap(used) and not used.coverer
+    local midMode    = (atk >= def or needCover or specialist) and "attack" or "defense"
+    local defMode    = specialist and "attack" or "defense"
+
     if ctype == "striker" then
         local s = freeStriker()
         if s then return s, "attack" end
@@ -282,13 +353,13 @@ function AI._pickBestSlot(cardDef, used)
         local d = freeDefender()
         if d then return d, "defense" end
     elseif ctype == "midfielder" then
-        if mid then return mid, (atk >= def and "attack" or "defense") end
+        if mid then return mid, midMode end
         local d = freeDefender()
         if d then return d, "defense" end
     elseif ctype == "defender" then
         local d = freeDefender()
-        if d then return d, "defense" end
-        if mid then return mid, "defense" end
+        if d then return d, defMode end
+        if mid then return mid, midMode end
     end
     return nil, nil
 end
@@ -306,6 +377,48 @@ local function evalFight(atkStat, defCard, slotType, dPitch)
     elseif atkStat == d then return "tie"
     else return "loss"
     end
+end
+
+-- Flips planned for this summon phase (see _planSummons; `used` holds the slots filled by
+-- this turn's summons). Only revealed cards flip (a face-down card keeps its secret). A
+-- revealed defence-mode card flips to attack mode when either
+--   cover:  a defender slot stays empty, no face-up card covers it, and this card could
+--           (the midfielder, or an Intercept/Sweeper defender); or
+--   attack: it wins a fight now against a face-up target it may attack (a defender-slot
+--           card against an enemy striker, the midfielder against the enemy midfielder).
+function AI._planFlips(match, used)
+    local pitch  = match.players.opponent.pitch
+    local ePitch = match.players.player.pitch
+    local out    = {}
+    local canAttack = not State.isOpeningTurn(match)
+
+    local function wins(card, slotType)
+        if not canAttack then return false end
+        local atk = Combat.attackStat(card, slotType, pitch, ePitch)
+        if slotType == "midfielder" then
+            return evalFight(atk, ePitch.midfielder, "midfielder", ePitch) == "win"
+        end
+        for i = 1, C.PITCH.MAX_STRIKERS do
+            if evalFight(atk, ePitch.strikers[i], "striker", ePitch) == "win" then return true end
+        end
+        return false
+    end
+
+    local function consider(card, slotType, slotIndex)
+        if not card or not card.revealed or not AI.canFlip(match, card, slotType) then return end
+        if card.cannotActNextTurn then return end   -- locked: it can neither cover nor attack
+        local covers = AI._defenderGap(used) and not used.coverer
+                       and (slotType == "midfielder"
+                            or Resolver.canCoverSlot(card, "defender", "defender"))
+        if covers or wins(card, slotType) then
+            table.insert(out, { type = "flip", slotType = slotType, slotIndex = slotIndex })
+            if covers then used.coverer = true end
+        end
+    end
+
+    consider(pitch.midfielder, "midfielder", 0)
+    for i = 1, C.PITCH.MAX_DEFENDERS do consider(pitch.defenders[i], "defender", i) end
+    return out
 end
 
 -- Priority rank for fight outcomes (lower = more desirable).
@@ -485,13 +598,20 @@ function AI._pickTarget(match, attacker, difficulty)
     -- This attacker's shot from here: its shot ATK against the keeper's visible DEF
     -- (an empty keeper slot always scores). oneOnOne: a Through ball shot faces the
     -- keeper's penalty DEF (base DEF; Fortress: full DEF).
+    -- Same numbers as Combat.resolveShot, a Clinical tie included.
     local function shotScores(oneOnOne)
         if not attacker.card then return false end
         local k   = dPitch.keeper
         local atk = Combat.attackStat(attacker.card, attacker.slotType, oPitch, dPitch, { keeper = k })
         if not k then return true end
-        return atk > Combat.keeperDef(k, dPitch, oneOnOne, true)
+        local def = Combat.keeperDef(k, dPitch, oneOnOne, true)
+        return atk > def or (atk == def and Resolver.clinical(attacker.card) and true or false)
     end
+
+    -- Through ball: past a full defence, straight at the keeper when the one-on-one
+    -- scores. AI.isLegalTarget allows it (Resolver.throughBall, once per turn).
+    local throughBall = #empty == 0 and attacker.slotType == "striker"
+                        and Resolver.throughBall(oPitch) ~= nil and shotScores(true)
 
     -- Beat the man: an empty slot can't be covered, so going through it is a clean shot.
     if #empty > 0 and attacker.card and Resolver.uncoverable(attacker.card) and shotScores() then
@@ -505,14 +625,12 @@ function AI._pickTarget(match, attacker, difficulty)
             if ra ~= rb then return ra < rb end
             return a.def < b.def
         end)
+        -- A known win first; a scoring one-on-one beats a gamble on a face-down defender.
+        if winning[1].ev == "facedown" and throughBall then return { type = "keeper", index = 0 } end
         return { type = winning[1].type, index = winning[1].index }
     end
 
-    -- Through ball: past a full defence, straight at the keeper when the shot scores.
-    if #empty == 0 and attacker.slotType == "striker" and Resolver.throughBall(oPitch)
-       and shotScores(true) then
-        return { type = "keeper", index = 0 }
-    end
+    if throughBall then return { type = "keeper", index = 0 } end
 
     -- No winning attack — advance through an empty slot instead
     if #empty > 0 then
