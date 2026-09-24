@@ -29,7 +29,7 @@ return {
         tags        = { "information" },
         stats       = {},
         maxPerDeck  = 3,
-        abilityText = "Reveal one opponent face-down card OR one opponent set trap card. No combat or activations triggered — information only. Revealed cards return to face-down state after.",
+        abilityText = "Reveal one opponent face-down card. It stays revealed — face-up for both players but still in defense mode. No combat or activations triggered.",
         ability     = "SCOUT_REPORT",
     },
     {

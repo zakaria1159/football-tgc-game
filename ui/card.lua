@@ -1,6 +1,7 @@
 -- Clash-portrait card renderer.
 -- Public API (unchanged contract for existing callers):
---   Card.drawPitched(pitched, x, y, opts)   opts: w, h, faceDown, canFlip, pitch, selected, target
+--   Card.drawPitched(pitched, x, y, opts)   opts: w, h, faceDown, canFlip, pitch, hideHidden, selected, target
+--   Card.showsFace(pitched)                 face-up? (attack mode or revealed; never traps) — pure
 --   Card.drawInHand(cardDef, x, y, opts)    opts: w, h, selected   → returns {x,y,w,h}
 --   Card.drawLarge(cardDef, x, y, w)        → face + info sticker, returns total h
 -- New:
@@ -237,11 +238,18 @@ end
 --   striker  → +ATK from an attack-mode midfielder card
 --   defender → +DEF from a defense-mode midfielder card
 --   keeper   → effective DEF (defenders + midfielder) minus base DEF
-function Card.bonuses(pitched, pitch)
+-- hideHidden: the card is the opponent's. Their unrevealed face-down midfielder is hidden,
+-- so its +DEF isn't shown (it would tell a midfielder card apart from another type).
+-- The keeper's +150 comes from any card in the slot, so it gives nothing away.
+function Card.bonuses(pitched, pitch, hideHidden)
     if not pitch then return 0, 0 end
     local st = pitched.slotType
     if st == "striker"  then return Combat.midfielderCardAtkBonus(pitch) or 0, 0 end
-    if st == "defender" then return 0, Combat.midfielderCardDefBonus(pitch) or 0 end
+    if st == "defender" then
+        local mid = pitch.midfielder
+        if hideHidden and mid and mid.mode == "defense" and not mid.revealed then return 0, 0 end
+        return 0, Combat.midfielderCardDefBonus(pitch) or 0
+    end
     if st == "keeper" then
         local base = (pitched.definition.stats and pitched.definition.stats.def) or 0
         return 0, Combat.keeperEffectiveDef(pitched, pitch) - base
@@ -249,12 +257,20 @@ function Card.bonuses(pitched, pitch)
     return 0, 0
 end
 
+-- True when a pitched card is drawn face-up: attack mode, or a revealed defense-mode
+-- card (seen by both players). Traps and unrevealed face-down cards show their back.
+-- Pure (unit-tested).
+function Card.showsFace(pitched)
+    if pitched.slotType == "trap" then return false end
+    return pitched.mode ~= "defense" or pitched.revealed == true
+end
+
 function Card.drawPitched(pitched, x, y, opts)
     opts = opts or {}
     local w = opts.w or Theme.cardSize.pitch.w
     local h = opts.h or Theme.cardSize.pitch.h
 
-    if pitched.mode == "defense" then
+    if not Card.showsFace(pitched) then
         Card.drawBack(x, y, w, h, {
             label = (not opts.faceDown) and (pitched.slotType == "trap" and "TRAP" or "DEF") or nil,
             canFlip = opts.canFlip,
@@ -263,13 +279,30 @@ function Card.drawPitched(pitched, x, y, opts)
         return
     end
 
-    local atkBonus, defBonus = Card.bonuses(pitched, opts.pitch)
+    local atkBonus, defBonus = Card.bonuses(pitched, opts.pitch, opts.hideHidden)
 
     Card.drawFace(pitched.definition, x, y, w, h, {
         atkBonus = atkBonus > 0 and atkBonus or nil,
         defBonus = defBonus > 0 and defBonus or nil,
         exhausted = pitched.exhausted, selected = opts.selected, target = opts.target,
     })
+
+    -- Revealed defense-mode card: face-up for both players, with a DEF marker.
+    if pitched.mode == "defense" then
+        local L  = Card.layout(w, h)
+        local ph = math.max(10, 16 * L.s)
+        local pw = ph * 2.6
+        Draw.pill(x + (w - pw) / 2, y + h * 0.12, pw, ph, "DEF", {
+            fill = Theme.grad.def, textColor = Theme.white,
+            border = math.max(1, math.floor(2 * L.s)), shadow = 0,
+        })
+        if opts.canFlip then
+            local rh = math.max(12, 20 * L.s)
+            Draw.ribbon(x + w / 2, y + h * 0.40, w * 0.9, rh, "FLIP UP", {
+                fill = Theme.grad.bonus, textColor = Theme.white,
+            })
+        end
+    end
 end
 
 function Card.drawInHand(cardDef, x, y, opts)

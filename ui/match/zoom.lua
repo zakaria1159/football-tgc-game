@@ -40,7 +40,8 @@ function Zoom.place(src, infoH, W, H)
 end
 
 -- Extra lines under the ability text: { text, color = ink|bonus|bad|warn }.
-function Zoom.statusLines(cardDef, pitched, pitch)
+-- hideHidden: the card is the opponent's (see Card.bonuses).
+function Zoom.statusLines(cardDef, pitched, pitch, hideHidden)
     local lines = {}
     local function add(text, color) lines[#lines + 1] = { text = text, color = color } end
     if cardDef.playstyle then
@@ -51,7 +52,7 @@ function Zoom.statusLines(cardDef, pitched, pitch)
     if not pitched then return lines end
 
     local st = cardDef.stats or {}
-    local atkB, defB = Card.bonuses(pitched, pitch)
+    local atkB, defB = Card.bonuses(pitched, pitch, hideHidden)
     if atkB > 0 then
         add("ATK " .. (st.atk or 0) .. " + " .. atkB .. " = " .. ((st.atk or 0) + atkB), "bonus")
     end
@@ -59,7 +60,11 @@ function Zoom.statusLines(cardDef, pitched, pitch)
         local label = pitched.slotType == "keeper" and "Effective DEF " or "DEF "
         add(label .. (st.def or 0) .. " + " .. defB .. " = " .. ((st.def or 0) + defB), "bonus")
     end
-    add(pitched.mode == "defense" and "Mode: DEFENSE (face-down)" or "Mode: ATTACK", "ink")
+    local modeText = "Mode: ATTACK"
+    if pitched.mode == "defense" then
+        modeText = pitched.revealed and "Mode: DEFENSE (revealed)" or "Mode: DEFENSE (face-down)"
+    end
+    add(modeText, "ink")
     if pitched.exhausted then add("EXHAUSTED", "bad") end
     if pitched.cannotActNextTurn then add("Cannot act next turn", "bad") end
     if (pitched.yellowCards or 0) > 0 then add("Yellow cards: " .. pitched.yellowCards, "warn") end
@@ -91,9 +96,10 @@ local LINE_COLORS = {
     ink = Theme.inkText, bonus = Theme.hex("16a34a"), bad = Theme.hex("e0243a"), warn = Theme.hex("c98a00"),
 }
 
--- z = { cardDef, pitched (optional), pitch (optional), src = rect, scale (pop-in) }
+-- z = { cardDef, pitched (optional), pitch (optional), hideHidden (opponent's card),
+--       src = rect, scale (pop-in) }
 function Zoom.draw(z)
-    local lines = Zoom.statusLines(z.cardDef, z.pitched, z.pitch)
+    local lines = Zoom.statusLines(z.cardDef, z.pitched, z.pitch, z.hideHidden)
     local baseH = Card.infoHeight(z.cardDef, Zoom.INFO_W)
     local infoH = Zoom.infoHeight(z.cardDef, lines)
     local p = Zoom.place(z.src, infoH, Layout.W, Layout.H)
@@ -106,7 +112,7 @@ function Zoom.draw(z)
     love.graphics.translate(-ox, -oy)
 
     local atkB, defB = 0, 0
-    if z.pitched then atkB, defB = Card.bonuses(z.pitched, z.pitch) end
+    if z.pitched then atkB, defB = Card.bonuses(z.pitched, z.pitch, z.hideHidden) end
     Card.drawFace(z.cardDef, p.cardX, p.cardY, Zoom.W, Zoom.H, {
         atkBonus  = atkB > 0 and atkB or nil,
         defBonus  = defB > 0 and defB or nil,

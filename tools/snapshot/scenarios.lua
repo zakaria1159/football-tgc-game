@@ -177,7 +177,7 @@ S.juice = {
     end },
     { 1.85, function(c) c.snap("drain") end },
     { 2.9,  function(c) c.snap("settled") end },
-    { 3.0,  function() require("scenes.match").flash("MIDFIELD CONTROL +1 SUMMON", "good") end },
+    { 3.0,  function() require("scenes.match").flash("MIDFIELD CONTROL +1 CARD", "good") end },
     { 3.4,  function(c) c.snap("banner") end },
     { 3.5,  function() require("scenes.match").spawnDrawAnim(true) end },
     { 3.7,  function(c) c.snap("drawanim") end },
@@ -410,6 +410,55 @@ S.defeat = {
     { 2.7, function() love.keypressed("escape") end },
     { 3.1, function(c) c.snap("home") end },
     { 3.3, function(c) c.quit() end },
+}
+
+-- Revealed cards (harness-only board): revealed defense cards are face-up with a DEF marker
+-- for both sides; the opponent's unrevealed face-down card and trap stay hidden; the
+-- opponent's revealed card zooms, the hidden one doesn't; the crown reads the revealed MID.
+S.revealed = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, kickOff },
+    { 1.5, function()
+        local st = store()
+        local P, O = st.match.players.player.pitch, st.match.players.opponent.pitch
+        local function revealed(id, slotType)
+            local c = pitched(id, slotType, "defense")
+            c.revealed = true
+            return c
+        end
+        P.defenders[1] = revealed("def-the-rock", "defender")
+        P.defenders[2] = pitched("def-stopper", "defender", "defense")
+        P.midfielder   = pitched("mid-box-to-box", "midfielder", "defense")
+        O.defenders[1] = revealed("def-destroyer", "defender")
+        O.defenders[2] = pitched("def-libero", "defender", "defense")
+        O.midfielder   = revealed("mid-deep-lying-playmaker", "midfielder")
+        O.keeper       = revealed("keeper-iron-fists", "keeper")
+        O.traps[1]     = pitched("trap-offside", "trap", "defense")
+    end },
+    { 1.9, function(c) c.snap("board") end },
+    { 2.0, function() move(center(Layout.slot("opponent", "defender", 1))) end },
+    { 2.6, function(c) c.snap("zoom") end },
+    { 2.7, function() move(center(Layout.slot("opponent", "defender", 2))) end },
+    { 3.3, function(c) c.snap("hidden") end },
+    { 3.5, function(c) c.quit() end },
+}
+
+-- Midfield control through the real engine (harness-only board): your Box-to-Box (ATK 1800)
+-- outpowers their Deep-Lying Playmaker (ATK 1500); re-running your draw phase on turn 2
+-- draws the normal card plus the midfield card, with the banner and the toast.
+S.midfield = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, kickOff },
+    { 1.5, function()
+        local m = store().match
+        m.players.player.pitch.midfielder   = pitched("mid-box-to-box", "midfielder")
+        m.players.opponent.pitch.midfielder = pitched("mid-deep-lying-playmaker", "midfielder")
+        m.turn  = 2
+        m.phase = "draw"      -- scenes/match.lua runs store:drawPhase() on the next update
+    end },
+    { 1.9, function(c) c.snap("banner") end },
+    { 2.6, function(c) c.snap("toast") end },
+    { 2.8, function(c) c.quit() end },
 }
 
 return S

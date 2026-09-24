@@ -8,11 +8,36 @@ local Phases = {}
 -- ─── DRAW ────────────────────────────────────────────────────────────────────
 
 function Phases.draw(matchState)
-    if matchState.turn == 1 and matchState.half ~= "extra" then return end
-    local card = State.drawCard(matchState, matchState.activePlayer)
-    if card then
-        State.log(matchState, T.EventType.CARD_DRAWN,
-            { player = matchState.activePlayer, card = card.id })
+    local id = matchState.activePlayer
+    -- No normal draw on turn 1 of halves 1 and 2 (Extra Time draws on turn 1).
+    if not (matchState.turn == 1 and matchState.half ~= "extra") then
+        local card = State.drawCard(matchState, id)
+        if card then
+            State.log(matchState, T.EventType.CARD_DRAWN, { player = id, card = card.id })
+        end
+    end
+    Phases._midfieldControl(matchState)
+end
+
+-- Midfield control: a player whose midfielder-type card has more power than the
+-- opponent's (ATK in attack mode, DEF in defense mode; face-down cards count) draws
+-- C.MATCH.MIDFIELD_CONTROL_DRAW extra card(s) after the normal draw.
+function Phases._midfieldControl(matchState)
+    local id     = matchState.activePlayer
+    local myPow  = Combat.midfielderPower(matchState.players[id].pitch)
+    local oppPow = Combat.midfielderPower(matchState.players[State.other(id)].pitch)
+    if myPow <= oppPow then return end
+    -- Nothing to draw (empty deck): no bonus, and no event for the UI to announce.
+    local n = math.min(C.MATCH.MIDFIELD_CONTROL_DRAW, #matchState.players[id].deck)
+    if n <= 0 then return end
+    State.log(matchState, T.EventType.MIDFIELD_CONTROL,
+        { player = id, myPow = myPow, oppPow = oppPow, bonus = "draw" })
+    for _ = 1, n do
+        local card = State.drawCard(matchState, id)
+        if card then
+            State.log(matchState, T.EventType.CARD_DRAWN,
+                { player = id, card = card.id, source = "midfield_control" })
+        end
     end
 end
 
@@ -144,45 +169,32 @@ function Phases.playStrategy(matchState, cardId, opts)
         end
     end
 
+    -- First turn of a half: the starter may not shoot either.
+    if (ability == "DIRECT_FREE_KICK" or ability == "PENALTY") and State.isOpeningTurn(matchState) then
+        table.insert(player.hand, cardDef)
+        return false, "no attacks on the first turn of a half"
+    end
+
     -- Commit: discard the card
     table.insert(player.graveyard, cardDef)
     if ability ~= "SUBSTITUTION" then
         matchState.strategyPlayedThisTurn = true
     end
 
-    -- ── DIRECT FREE KICK ────────────────────────────────────────────────────────
-    if ability == "DIRECT_FREE_KICK" then
+    -- ── DIRECT FREE KICK / PENALTY ─────────────────────────────────────────────
+    -- The best striker shoots at the keeper (Penalty: base DEF only). An empty keeper
+    -- slot is an open goal for the striker's full ATK.
+    if ability == "DIRECT_FREE_KICK" or ability == "PENALTY" then
         local best, bestSlot = Phases._bestStriker(player.pitch)
         if not best then
             table.remove(player.graveyard); table.insert(player.hand, cardDef)
             matchState.strategyPlayedThisTurn = false
-            return false, "Need an active striker on pitch to take a free kick"
+            return false, ability == "PENALTY" and "Need an active striker on pitch to take a penalty"
+                                               or  "Need an active striker on pitch to take a free kick"
         end
         local keeper = matchState.players[opponentId].pitch.keeper
-        if not keeper then
-            table.remove(player.graveyard); table.insert(player.hand, cardDef)
-            matchState.strategyPlayedThisTurn = false
-            return false, "Opponent has no keeper"
-        end
         State.log(matchState, "strategy_played", { ability = ability, player = matchState.activePlayer })
-        return Phases._goalAttempt(matchState, best, keeper, bestSlot, opponentId, false)
-
-    -- ── PENALTY ─────────────────────────────────────────────────────────────────
-    elseif ability == "PENALTY" then
-        local best, bestSlot = Phases._bestStriker(player.pitch)
-        if not best then
-            table.remove(player.graveyard); table.insert(player.hand, cardDef)
-            matchState.strategyPlayedThisTurn = false
-            return false, "Need an active striker on pitch to take a penalty"
-        end
-        local keeper = matchState.players[opponentId].pitch.keeper
-        if not keeper then
-            table.remove(player.graveyard); table.insert(player.hand, cardDef)
-            matchState.strategyPlayedThisTurn = false
-            return false, "Opponent has no keeper"
-        end
-        State.log(matchState, "strategy_played", { ability = ability, player = matchState.activePlayer })
-        return Phases._goalAttempt(matchState, best, keeper, bestSlot, opponentId, true)
+        return Phases._goalAttempt(matchState, best, keeper, bestSlot, opponentId, ability == "PENALTY")
 
     -- ── TIME WASTING ────────────────────────────────────────────────────────────
     elseif ability == "TIME_WASTING" then
@@ -202,6 +214,8 @@ function Phases.playStrategy(matchState, cardId, opts)
         if opts and opts.targetSlot then
             local tPitch = matchState.players[opts.targetSlot.owner].pitch
             revealedCard = Phases._getSlot(tPitch, opts.targetSlot)
+            -- Scouted face-down cards stay revealed (face-up, still in defense mode).
+            if revealedCard and revealedCard.mode == "defense" then revealedCard.revealed = true end
         end
         State.log(matchState, "strategy_played", { ability = ability, player = matchState.activePlayer })
         return { outcome = "scout_report", revealedCard = revealedCard }, nil
@@ -269,44 +283,61 @@ function Phases.changeMode(matchState, slotType, slotIndex)
     return true
 end
 
-function Phases.attack(matchState, attackerSlot, defenderSlot)
+-- Checks an attack before any trap or cover window opens. Returns true, or false + reason.
+function Phases.validateAttack(matchState, attackerSlot, defenderSlot)
+    if State.isOpeningTurn(matchState) then
+        return false, "no attacks on the first turn of a half"
+    end
     local attacker = Phases._getSlotForPlayer(matchState, matchState.activePlayer, attackerSlot)
-    if not attacker then return nil, "no attacker" end
-    if attacker.exhausted then return nil, "attacker exhausted" end
-    if attacker.cannotActNextTurn then return nil, "attacker cannot act" end
-    if attacker.mode ~= "attack" then return nil, "card is in defense mode" end
+    if not attacker then return false, "no attacker" end
+    if attacker.exhausted then return false, "attacker exhausted" end
+    if attacker.cannotActNextTurn then return false, "attacker cannot act" end
+    if attacker.mode ~= "attack" then return false, "card is in defense mode" end
+    if defenderSlot.type == "keeper" then
+        -- Direct shots need a gap in the defender line (occupied or empty keeper slot).
+        local oppPitch = matchState.players[State.other(matchState.activePlayer)].pitch
+        local hasGap = false
+        for i = 1, C.PITCH.MAX_DEFENDERS do
+            if not oppPitch.defenders[i] then hasGap = true; break end
+        end
+        if not hasGap then return false, "keeper protected — clear a defender first" end
+    end
+    return true
+end
 
-    local opponentId = matchState.activePlayer == "player" and "opponent" or "player"
+function Phases.attack(matchState, attackerSlot, defenderSlot)
+    local ok, err = Phases.validateAttack(matchState, attackerSlot, defenderSlot)
+    if not ok then return nil, err end
+
+    local attacker   = Phases._getSlotForPlayer(matchState, matchState.activePlayer, attackerSlot)
+    local opponentId = State.other(matchState.activePlayer)
     local defender   = Phases._getSlotForPlayer(matchState, opponentId, defenderSlot)
 
     State.log(matchState, T.EventType.ATTACK_DECLARED,
         { attacker = attackerSlot, defender = defenderSlot })
 
-    if defender then
-        -- Direct keeper shot: allowed if at least one defender slot is empty
-        if defenderSlot.type == "keeper" then
-            local oppPitch = matchState.players[opponentId].pitch
-            local hasGap = false
-            for i = 1, C.PITCH.MAX_DEFENDERS do
-                if not oppPitch.defenders[i] then hasGap = true; break end
-            end
-            if not hasGap then
-                return nil, "keeper protected — clear a defender first"
-            end
-            -- Midfielder reaching keeper = wasted
-            if attackerSlot.type == "midfielder" then
-                attacker.exhausted = true
-                State.log(matchState, "attack_wasted", { reason = "midfielder_keeper" })
-                return { outcome = "wasted", reason = "midfielder_keeper" }
-            end
-            return Phases._goalAttempt(matchState, attacker, defender, attackerSlot, opponentId)
-        end
-        -- Normal combat
-        return Phases._doCombat(matchState, attacker, defender, attackerSlot, defenderSlot, opponentId)
-    else
-        -- Empty slot — check if covering is available
-        return Phases._handleEmpty(matchState, attacker, attackerSlot, defenderSlot, opponentId)
+    -- The keeper slot (occupied or empty) is always a shot, never card-vs-card combat.
+    if defenderSlot.type == "keeper" then
+        return Phases._shootAtGoal(matchState, attacker, attackerSlot, opponentId)
     end
+    if defender then
+        return Phases._doCombat(matchState, attacker, defender, attackerSlot, defenderSlot, opponentId)
+    end
+    -- Empty slot — check if covering is available
+    return Phases._handleEmpty(matchState, attacker, attackerSlot, defenderSlot, opponentId)
+end
+
+-- An attack that reached the goal. The midfielder slot can't shoot (wasted); any other
+-- card shoots at the keeper, or scores an open goal when the keeper slot is empty.
+function Phases._shootAtGoal(matchState, attacker, attackerSlot, opponentId)
+    if attackerSlot.type == "midfielder" then
+        attacker.exhausted      = true
+        attacker.usedAsAttacker = true  -- a wasted attack still counts (keeper +150 lost)
+        State.log(matchState, "attack_wasted", { reason = "midfielder_keeper" })
+        return { outcome = "wasted", reason = "midfielder_keeper" }
+    end
+    local keeper = matchState.players[opponentId].pitch.keeper
+    return Phases._goalAttempt(matchState, attacker, keeper, attackerSlot, opponentId)
 end
 
 -- Called after the defending player decides to cover (or not).
@@ -324,10 +355,8 @@ function Phases.resolveCover(matchState, attackerSlot, originalEmptySlot, covere
         local coverer = Phases._getSlotForPlayer(matchState, opponentId, covererSlot)
         if not coverer then return nil, "no coverer" end
 
-        -- Reveal if face-down
-        if coverer.mode == "defense" then
-            coverer.mode = "attack"  -- revealed by covering
-        end
+        -- Coverers are attack-mode cards; mark defensively in case that ever changes
+        if coverer.mode == "defense" then coverer.revealed = true end
 
         -- Covering card cannot act next turn
         coverer.cannotActNextTurn = true
@@ -354,7 +383,8 @@ function Phases._handleEmpty(matchState, attacker, attackerSlot, emptySlot, oppo
 
     -- Midfielder cannot attack an empty midfielder slot
     if attackerSlot.type == "midfielder" and emptySlot.type == "midfielder" then
-        attacker.exhausted = true
+        attacker.exhausted      = true
+        attacker.usedAsAttacker = true  -- a wasted attack still counts (keeper +150 lost)
         State.log(matchState, "attack_wasted", { reason = "midfielder_empty_midfielder" })
         return { outcome = "wasted", reason = "midfielder_empty_midfielder" }
     end
@@ -381,31 +411,17 @@ function Phases._handleEmpty(matchState, attacker, attackerSlot, emptySlot, oppo
     return Phases._advanceThrough(matchState, attacker, attackerSlot, emptySlot, opponentId)
 end
 
--- Advance through empty lines until hitting an occupied card.
+-- Advance through empty lines until hitting an occupied card or the goal.
 function Phases._advanceThrough(matchState, attacker, attackerSlot, fromSlot, opponentId)
-    local oppPitch  = matchState.players[opponentId].pitch
-    local nextSlot  = Phases._nextOccupiedLine(oppPitch, fromSlot)
+    local oppPitch = matchState.players[opponentId].pitch
+    local nextSlot = Phases._nextOccupiedLine(oppPitch, fromSlot)
 
-    if not nextSlot then
-        -- Nothing on the pitch at all (should not normally happen)
-        attacker.exhausted = true
-        return { outcome = "wasted", reason = "no_target" }
+    -- Nothing left before the goal (only the keeper, or an empty keeper slot): shot.
+    if not nextSlot or nextSlot.type == "keeper" then
+        return Phases._shootAtGoal(matchState, attacker, attackerSlot, opponentId)
     end
 
     local target = Phases._getSlot(oppPitch, nextSlot)
-
-    -- Midfielder cannot shoot the keeper
-    if nextSlot.type == "keeper" and attacker.definition.type == "midfielder" then
-        attacker.exhausted = true
-        State.log(matchState, "attack_wasted", { reason = "midfielder_keeper" })
-        return { outcome = "wasted", reason = "midfielder_keeper" }
-    end
-
-    -- Striker reaching keeper = LP damage
-    if nextSlot.type == "keeper" and attacker.definition.type == "striker" then
-        return Phases._goalAttempt(matchState, attacker, target, attackerSlot, opponentId)
-    end
-
     return Phases._doCombat(matchState, attacker, target, attackerSlot, nextSlot, opponentId)
 end
 
@@ -471,9 +487,9 @@ function Phases._doCombat(matchState, attacker, defender, attackerSlot, defender
         atkPitch, defPitch
     )
 
-    -- Reveal face-down cards after resolution
-    if attacker.mode == "defense" then attacker.mode = "attack" end
-    if defender.mode == "defense" then defender.mode = "attack" end
+    -- A face-down defender is revealed but stays in defense mode (no battle damage,
+    -- defense bonuses kept). Attackers are always in attack mode.
+    if defender.mode == "defense" then defender.revealed = true end
 
     if result.outcome == "defender_destroyed" then
         attacker.exhausted = true
@@ -482,9 +498,7 @@ function Phases._doCombat(matchState, attacker, defender, attackerSlot, defender
         -- Battle damage: defender was in attack mode, so its owner takes LP = ATK difference
         if not defenderFaceDown then
             local dmg = result.margin
-            matchState.players[opponentId].lp = matchState.players[opponentId].lp - dmg
-            matchState.players[activeId].totalDamageDealt =
-                matchState.players[activeId].totalDamageDealt + dmg
+            State.dealDamage(matchState, activeId, dmg)
             result.damage = dmg
             State.log(matchState, T.EventType.LP_DAMAGE,
                 { dealer = activeId, damage = dmg,
@@ -500,9 +514,7 @@ function Phases._doCombat(matchState, attacker, defender, attackerSlot, defender
     else  -- attacker lost: always destroyed + LP damage (face-down or face-up)
         Phases._destroyCard(matchState, activeId, attackerSlot.type, attackerSlot.index or 0)
         local penalty = -result.margin  -- margin is negative, so penalty > 0
-        matchState.players[activeId].lp = matchState.players[activeId].lp - penalty
-        matchState.players[opponentId].totalDamageDealt =
-            matchState.players[opponentId].totalDamageDealt + penalty
+        State.dealDamage(matchState, opponentId, penalty)
         result.damage = penalty
         State.log(matchState, T.EventType.LP_DAMAGE,
             { dealer = opponentId, damage = penalty,
@@ -513,29 +525,30 @@ function Phases._doCombat(matchState, attacker, defender, attackerSlot, defender
     return result
 end
 
--- Striker shot against keeper: deal LP damage.
+-- Shot at the goal: every attack that reaches the keeper ends here (the keeper is never
+-- destroyed). keeper == nil → open goal for the shooter's full ATK.
 -- penaltyMode = true → keeper uses base DEF only (no active defender bonuses).
 function Phases._goalAttempt(matchState, striker, keeper, attackerSlot, opponentId, penaltyMode)
     local activeId = matchState.activePlayer
     local oppPitch = matchState.players[opponentId].pitch
     local atkPitch = matchState.players[activeId].pitch
-    local result   = Combat.resolveShot(striker, keeper, oppPitch, atkPitch, penaltyMode)
+    local result   = Combat.resolveShot(striker, keeper, oppPitch, atkPitch, penaltyMode,
+                                        attackerSlot and attackerSlot.type)
+    result.attackerSlot = attackerSlot
 
-    -- Reveal face-down cards
-    if striker.mode == "defense" then striker.mode = "attack" end
-    if keeper.mode  == "defense" then keeper.mode  = "attack" end
+    -- A face-down keeper is revealed (it stays in defense mode)
+    if keeper and keeper.mode == "defense" then keeper.revealed = true end
 
     striker.usedAsAttacker = true
     striker.exhausted      = true
 
     if result.outcome == "damage" then
-        keeper.exhausted = true
-        matchState.players[opponentId].lp = matchState.players[opponentId].lp - result.damage
-        matchState.players[activeId].totalDamageDealt =
-            matchState.players[activeId].totalDamageDealt + result.damage
+        if keeper then keeper.exhausted = true end
+        State.dealDamage(matchState, activeId, result.damage)
         State.log(matchState, T.EventType.LP_DAMAGE,
             { dealer = activeId, damage = result.damage,
-              remainingLP = matchState.players[opponentId].lp })
+              remainingLP = matchState.players[opponentId].lp,
+              source = result.openGoal and "open_goal" or nil })
 
     elseif result.outcome == "tie" then
         keeper.exhausted  = true
@@ -580,9 +593,9 @@ function Phases.endTurn(matchState)
     matchState.players[activeId].nextTurnSummonLimit = nil
 
     -- Check if half ended
-    local halfWinner = State.checkHalfEnd(matchState)
+    local halfWinner, reason = State.checkHalfEnd(matchState)
     if halfWinner then
-        State.endHalf(matchState, halfWinner)
+        State.endHalf(matchState, halfWinner, reason)
         return
     end
 
@@ -597,30 +610,28 @@ function Phases.endTurn(matchState)
         end
     end
 
+    -- Keeper bonus timing: the new active player's cards that attacked count toward
+    -- their keeper's effective DEF again from now on.
+    Phases._clearAttackerFlags(matchState.players[matchState.activePlayer].pitch)
+
     matchState.phase       = "draw"
     matchState.summonCount = 0
 
-    -- Midfield control: award extra summon to new active player if their midfielder
-    -- outpowers the opponent's. Only actual midfielder-type cards count (Option B).
-    local newId  = matchState.activePlayer
-    local oppId  = newId == "player" and "opponent" or "player"
-    local myPow  = Combat.midfielderPower(matchState.players[newId].pitch)
-    local oppPow = Combat.midfielderPower(matchState.players[oppId].pitch)
-    if myPow > oppPow then
-        local base = matchState.players[newId].nextTurnSummonLimit or C.MATCH.MAX_SUMMONS_PER_TURN
-        matchState.players[newId].nextTurnSummonLimit = base + C.MATCH.MIDFIELD_CONTROL_BONUS
-        State.log(matchState, T.EventType.MIDFIELD_CONTROL, {
-            player = newId,
-            myPow  = myPow,
-            oppPow = oppPow,
-        })
-    end
-
-    -- Check half end again after turn increment (for Extra Time countdown)
-    halfWinner = State.checkHalfEnd(matchState)
+    -- Check half end again after the round count moved on (half limit, Extra Time countdown)
+    halfWinner, reason = State.checkHalfEnd(matchState)
     if halfWinner then
-        State.endHalf(matchState, halfWinner)
+        State.endHalf(matchState, halfWinner, reason)
     end
+end
+
+-- Clears the "attacked" flag on every card of a pitch (start of its owner's turn).
+-- Numeric loops: a slot may be empty in front of an occupied one.
+function Phases._clearAttackerFlags(pitch)
+    local function clear(c) if c then c.usedAsAttacker = false end end
+    clear(pitch.keeper)
+    clear(pitch.midfielder)
+    for i = 1, C.PITCH.MAX_DEFENDERS do clear(pitch.defenders[i]) end
+    for i = 1, C.PITCH.MAX_STRIKERS  do clear(pitch.strikers[i])  end
 end
 
 -- ─── Slot helpers ─────────────────────────────────────────────────────────────

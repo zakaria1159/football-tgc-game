@@ -57,7 +57,7 @@ function Toasts.describe(entry)
     if t == "half_end"  then return "Half " .. tostring(p.half or "?") .. " over", "half" end
     if t == "match_end" then return "FULL TIME", "half" end
     if t == "midfield_control" then
-        return (mine and "You control" or "Opp controls") .. " midfield +1 summon", mine and "good" or "bad"
+        return (mine and "You control" or "Opp controls") .. " midfield +1 card", mine and "good" or "bad"
     end
     if t == "trap_activated" then
         local nm = (p.trap or "trap"):gsub("^trap%-", ""):gsub("%-", " ")

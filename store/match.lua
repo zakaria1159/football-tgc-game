@@ -1,5 +1,8 @@
 local State  = require("engine.state")
 local Phases = require("engine.phases")
+local Combat = require("engine.combat")
+local C      = require("engine.constants")
+local AI     = require("ai.opponent")
 
 local Store = {}
 Store.__index = Store
@@ -72,13 +75,36 @@ function Store:startAttackPhase()
     self:_notify()
 end
 
+-- Face-up for Last Defender Foul: attack mode, or revealed.
+local function faceUp(card)
+    return card ~= nil and (card.mode == "attack" or card.revealed == true)
+end
+
+-- True when defenderSlot holds the defending side's only face-up defender (checked on
+-- the board before the attack resolves).
+function Store:_isLastFaceUpDefender(defenderId, defenderSlot)
+    if defenderSlot.type ~= "defender" then return false end
+    local pitch = self.match.players[defenderId].pitch
+    if not faceUp(pitch.defenders[defenderSlot.index]) then return false end
+    local n = 0
+    for i = 1, C.PITCH.MAX_DEFENDERS do
+        if faceUp(pitch.defenders[i]) then n = n + 1 end
+    end
+    return n == 1
+end
+
 function Store:declareAttack(attackerSlot, defenderSlot)
     if not self:_assertPhase("attack") then return nil, "wrong phase" end
     if self.match.winner then return nil, "match over" end
 
     local match      = self.match
     local activeId   = match.activePlayer
-    local opponentId = activeId == "player" and "opponent" or "player"
+    local opponentId = State.other(activeId)
+
+    -- Illegal attacks (first turn of a half, keeper protected, exhausted …) are refused
+    -- before any trap window can open.
+    local okAtk, whyNot = Phases.validateAttack(match, attackerSlot, defenderSlot)
+    if not okAtk then return nil, whyNot end
 
     -- Resolve real snap target: if the declared slot is empty and no cover is possible,
     -- the attacker will advance to the next occupied line — snap that card instead.
@@ -98,14 +124,8 @@ function Store:declareAttack(attackerSlot, defenderSlot)
 
     local snap = self:_snapshotAttack(attackerSlot, snapDefSlot)
 
-    -- Snapshot defender count BEFORE attack for LAST_DEFENDER_FOUL check
-    local C = require("engine.constants")
-    local opponentDefCount = 0
-    for i = 1, C.PITCH.MAX_DEFENDERS do
-        if match.players[opponentId].pitch.defenders[i] then
-            opponentDefCount = opponentDefCount + 1
-        end
-    end
+    -- Last Defender Foul is judged on the board before the attack.
+    local lastDefender = activeId == "player" and self:_isLastFaceUpDefender(opponentId, defenderSlot)
 
     -- ── Pre-attack trap check (OFFSIDE) ───────────────────────────────────────
     -- When AI attacks with striker: show player's OFFSIDE/MC window
@@ -130,8 +150,8 @@ function Store:declareAttack(attackerSlot, defenderSlot)
 
     -- When player attacks with striker: AI OFFSIDE auto-fires (or player can counter with MC)
     if activeId == "player" and attackerSlot.type == "striker" then
-        local offsideTrap, offsideIdx = self:_findTrap(match.players.opponent.pitch, "OFFSIDE")
-        if offsideTrap then
+        local aiOffside, aiOffsideIdx = self:_findTrap(match.players.opponent.pitch, "OFFSIDE")
+        if aiOffside and AI.wantsOffside(match, "opponent", attackerSlot, defenderSlot) then
             local mcTrap, mcIdx = self:_findTrap(match.players.player.pitch, "MANAGERS_CHALLENGE")
             if mcTrap then
                 -- Player can counter AI's OFFSIDE with MC
@@ -139,8 +159,8 @@ function Store:declareAttack(attackerSlot, defenderSlot)
                     type         = "counter_offside",
                     attackerSlot = attackerSlot,
                     defenderSlot = defenderSlot,
-                    aiTrapCard   = offsideTrap,
-                    aiTrapIdx    = offsideIdx,
+                    aiTrapCard   = aiOffside,
+                    aiTrapIdx    = aiOffsideIdx,
                     traps        = { { card = mcTrap, slotIndex = mcIdx } },
                     attackerSnap = snap.attacker,
                     defenderSnap = snap.defender,
@@ -149,11 +169,11 @@ function Store:declareAttack(attackerSlot, defenderSlot)
                 return { outcome = "trap_window" }, nil
             else
                 -- Auto-fire AI OFFSIDE
-                local trapDef = Phases.activateTrap(match, "opponent", offsideIdx)
+                local trapDef = Phases.activateTrap(match, "opponent", aiOffsideIdx)
                 local attCard = Phases._getSlotForPlayer(match, "player", attackerSlot)
                 if attCard then attCard.exhausted = true end
                 local atkName = snap.attacker and snap.attacker.name or "Striker"
-                self:_pushTrapActivation("opponent", trapDef or offsideTrap.definition,
+                self:_pushTrapActivation("opponent", trapDef or aiOffside.definition,
                     "Your " .. atkName .. " was caught offside!")
                 self:_notify()
                 return { outcome = "offside_cancelled" }, nil
@@ -162,10 +182,7 @@ function Store:declareAttack(attackerSlot, defenderSlot)
     end
 
     local result, err = Phases.attack(match, attackerSlot, defenderSlot)
-
-    if not result then
-        return nil, err
-    end
+    if not result then return nil, err end
 
     if result.outcome == "cover_needed" then
         self.coverWindow = {
@@ -179,49 +196,87 @@ function Store:declareAttack(attackerSlot, defenderSlot)
     end
 
     self:_pushCombat(snap, result)
-
-    -- ── Post-combat trap checks ───────────────────────────────────────────────
-
-    -- When AI destroys player's card: RED_CARD window (player can punish the winning attacker)
-    if activeId == "opponent" and
-       (result.outcome == "defender_destroyed" or result.outcome == "tie") then
-        local rcTrap, rcIdx = self:_findTrap(match.players.player.pitch, "RED_CARD")
-        if rcTrap then
-            self.trapWindow = {
-                type         = "post_destroy",
-                attackerSlot = attackerSlot,
-                traps        = { { card = rcTrap, slotIndex = rcIdx } },
-                attackerSnap = snap.attacker,
-                defenderSnap = snap.defender,
-            }
-            self:_checkHalf()
-            self:_notify()
-            return result, nil
-        end
+    if self:_afterCombatTraps(snap, result, attackerSlot) then
+        self:_notify()
+        return result, nil
     end
 
-    -- When AI scores LP damage: VAR window for player (defer _checkHalf until after decision)
-    if activeId == "opponent" and result.outcome == "damage" then
-        local varTrap, varIdx = self:_findTrap(match.players.player.pitch, "VAR")
-        if varTrap then
-            self.trapWindow = {
-                type         = "post_damage",
-                attackerSlot = attackerSlot,
-                traps        = { { card = varTrap, slotIndex = varIdx } },
-                attackerSnap = snap.attacker,
-                defenderSnap = snap.defender,
-                damage       = result.damage,
-            }
-            self:_notify()
-            return result, nil
-        end
+    if self:_lastDefenderFoulWindow(lastDefender, snap, result, defenderSlot) then
+        self:_checkHalf()
+        self:_notify()
+        return result, nil
     end
 
-    -- When player wins combat: check AI RED_CARD; player can counter with VAR or MC
-    if activeId == "player" and
-       (result.outcome == "defender_destroyed" or result.outcome == "tie") then
-        local rcTrap, rcIdx = self:_findTrap(match.players.opponent.pitch, "RED_CARD")
-        if rcTrap then
+    self:_checkHalf()
+    self:_notify()
+    return result, nil
+end
+
+-- LAST_DEFENDER_FOUL: the player's attack on the opponent's last face-up defender
+-- (lastDefender, judged before the attack) was beaten (not a tie), so that defender is
+-- still standing. Opens the player's window; returns true when it did.
+function Store:_lastDefenderFoulWindow(lastDefender, snap, result, defenderSlot)
+    if not (lastDefender and result and result.outcome == "attacker_exhausted") then return false end
+    local ldfTrap, ldfIdx = self:_findTrap(self.match.players.player.pitch, "LAST_DEFENDER_FOUL")
+    if not ldfTrap then return false end
+    self.trapWindow = {
+        type               = "post_last_defender",
+        defenderSlot       = defenderSlot,
+        defenderStillAlive = true,
+        traps              = { { card = ldfTrap, slotIndex = ldfIdx } },
+        attackerSnap       = snap.attacker,
+        defenderSnap       = snap.defender,
+    }
+    return true
+end
+
+-- Red Card / VAR after any resolved attack or shot: declared attack, cover or
+-- let-through, an attack resumed after a trap window, Direct Free Kick, Penalty.
+-- Returns true when a trap window for the human is now open; the caller then returns
+-- without _checkHalf (post_destroy / counter_red_card windows run it here, as before;
+-- post_damage waits for the VAR decision).
+function Store:_afterCombatTraps(snap, result, attackerSlot)
+    local match    = self.match
+    local activeId = match.activePlayer
+    local outcome  = result and result.outcome
+
+    if activeId == "opponent" then
+        -- AI destroyed one of the player's cards (not a tie): player's RED_CARD window
+        if outcome == "defender_destroyed" then
+            local rcTrap, rcIdx = self:_findTrap(match.players.player.pitch, "RED_CARD")
+            if rcTrap then
+                self.trapWindow = {
+                    type         = "post_destroy",
+                    attackerSlot = attackerSlot,
+                    traps        = { { card = rcTrap, slotIndex = rcIdx } },
+                    attackerSnap = snap.attacker,
+                    defenderSnap = snap.defender,
+                }
+                self:_checkHalf()
+                return true
+            end
+        -- AI scored: player's VAR window (_checkHalf waits for the decision)
+        elseif outcome == "damage" then
+            local varTrap, varIdx = self:_findTrap(match.players.player.pitch, "VAR")
+            if varTrap then
+                self.trapWindow = {
+                    type         = "post_damage",
+                    attackerSlot = attackerSlot,
+                    traps        = { { card = varTrap, slotIndex = varIdx } },
+                    attackerSnap = snap.attacker,
+                    defenderSnap = snap.defender,
+                    damage       = result.damage,
+                }
+                return true
+            end
+        end
+        return false
+    end
+
+    -- Player won a fight (not a tie): AI RED_CARD; the player may counter with VAR or MC
+    if outcome == "defender_destroyed" then
+        local aiRedCard, aiRedIdx = self:_findTrap(match.players.opponent.pitch, "RED_CARD")
+        if aiRedCard and AI.wantsRedCard(snap.attacker and snap.attacker.atk or 0) then
             local counters = {}
             local varTrap, varIdx = self:_findTrap(match.players.player.pitch, "VAR")
             local mcTrap,  mcIdx  = self:_findTrap(match.players.player.pitch, "MANAGERS_CHALLENGE")
@@ -231,68 +286,67 @@ function Store:declareAttack(attackerSlot, defenderSlot)
                 self.trapWindow = {
                     type         = "counter_red_card",
                     attackerSlot = attackerSlot,
-                    aiTrapCard   = rcTrap,
-                    aiTrapIdx    = rcIdx,
+                    aiTrapCard   = aiRedCard,
+                    aiTrapIdx    = aiRedIdx,
                     traps        = counters,
                     attackerSnap = snap.attacker,
                     defenderSnap = snap.defender,
                 }
                 self:_checkHalf()
-                self:_notify()
-                return result, nil
-            else
-                -- Auto-fire AI RED_CARD
-                local trapDef = Phases.activateTrap(match, "opponent", rcIdx)
-                Phases._destroyCard(match, "player", attackerSlot.type, attackerSlot.index or 0)
-                local atkName = snap.attacker and snap.attacker.name or "Attacker"
-                self:_pushTrapActivation("opponent", trapDef or rcTrap.definition,
-                    "Your " .. atkName .. " was sent off!")
+                return true
             end
+            -- Auto-fire AI RED_CARD
+            local trapDef = Phases.activateTrap(match, "opponent", aiRedIdx)
+            Phases._destroyCard(match, "player", attackerSlot.type, attackerSlot.index or 0)
+            local atkName = snap.attacker and snap.attacker.name or "Attacker"
+            self:_pushTrapActivation("opponent", trapDef or aiRedCard.definition,
+                "Your " .. atkName .. " was sent off!")
         end
-    end
-
-    -- When player scores LP damage: AI VAR auto-activates
-    -- When player scores LP damage: AI VAR auto-activates (restores own LP, returns player's striker)
-    if activeId == "player" and result.outcome == "damage" then
+    -- Player scored: AI VAR auto-activates (LP back, the shooter returns to the player's hand)
+    elseif outcome == "damage" then
         local varTrap, varIdx = self:_findTrap(match.players.opponent.pitch, "VAR")
         if varTrap then
             Phases.activateTrap(match, "opponent", varIdx)
-            match.players.opponent.lp = match.players.opponent.lp + (result.damage or 0)
-            local pitch = match.players.player.pitch
-            local striker = pitch.strikers[attackerSlot.index]
-            if striker then
-                table.insert(match.players.player.hand, striker.definition)
-                pitch.strikers[attackerSlot.index] = nil
+            State.refundDamage(match, "player", result.damage or 0)
+            local pitch   = match.players.player.pitch
+            local shooter = Phases._getSlot(pitch, attackerSlot)
+            if shooter then
+                table.insert(match.players.player.hand, shooter.definition)
+                Phases._setSlot(pitch, attackerSlot, nil)
             end
             local atkName = snap.attacker and snap.attacker.name or "Striker"
             self:_pushTrapActivation("opponent", varTrap.definition,
                 "VAR overturns the goal! " .. atkName .. " returned to your hand.")
         end
     end
+    return false
+end
 
-    -- When player attacks opponent's LAST defender and doesn't win: LAST_DEFENDER_FOUL
-    if activeId == "player" and defenderSlot.type == "defender" and
-       opponentDefCount == 1 and
-       result.outcome ~= "defender_destroyed" then
-        local ldfTrap, ldfIdx = self:_findTrap(match.players.player.pitch, "LAST_DEFENDER_FOUL")
-        if ldfTrap then
-            self.trapWindow = {
-                type               = "post_last_defender",
-                defenderSlot       = defenderSlot,
-                defenderStillAlive = (result.outcome == "attacker_exhausted"),
-                traps              = { { card = ldfTrap, slotIndex = ldfIdx } },
-                attackerSnap       = snap.attacker,
-                defenderSnap       = snap.defender,
-            }
-            self:_checkHalf()
-            self:_notify()
-            return result, nil
-        end
+-- Runs an attack that was waiting on a pre-attack trap window (Offside passed, or
+-- overruled by Manager's Challenge). Returns true when a cover or trap window opened.
+function Store:_resumeAttack(tw)
+    local snap   = { attacker = tw.attackerSnap, defender = tw.defenderSnap }
+    local activeId     = self.match.activePlayer
+    local lastDefender = activeId == "player"
+                         and self:_isLastFaceUpDefender(State.other(activeId), tw.defenderSlot)
+    local result = Phases.attack(self.match, tw.attackerSlot, tw.defenderSlot)
+    if not result then return false end
+    if result.outcome == "cover_needed" then
+        self.coverWindow = {
+            attackerSlot     = tw.attackerSlot,
+            emptySlot        = tw.defenderSlot,
+            eligibleCoverers = result.eligibleCoverers,
+            attackerSnap     = tw.attackerSnap,
+        }
+        return true
     end
-
-    self:_checkHalf()
-    self:_notify()
-    return result, nil
+    self:_pushCombat(snap, result)
+    if self:_afterCombatTraps(snap, result, tw.attackerSlot) then return true end
+    if self:_lastDefenderFoulWindow(lastDefender, snap, result, tw.defenderSlot) then
+        self:_checkHalf()
+        return true
+    end
+    return false
 end
 
 -- Called after the player decides to activate or pass a trap window.
@@ -303,12 +357,13 @@ function Store:resolveTrap(trapSlotIndex)
     self.trapWindow = nil
 
     local match      = self.match
-    -- opponentId = who the AI / active attacking player is (varies by window type)
-    local opponentId = match.activePlayer  -- correct for pre_attack / post_destroy (AI is active)
+    -- opponentId = the AI when it is the attacking player (pre_attack / post_destroy)
+    local opponentId = match.activePlayer
 
     -- ── Counter windows (player is active, AI trap was about to auto-fire) ────
 
     if tw.type == "counter_offside" then
+        local open = false
         if trapSlotIndex then
             -- Player uses MC to negate AI's OFFSIDE
             local entry   = tw.traps[trapSlotIndex]
@@ -318,20 +373,7 @@ function Store:resolveTrap(trapSlotIndex)
             Phases.activateTrap(match, "opponent", tw.aiTrapIdx)
             match.players.player.lp = match.players.player.lp - 1000
             -- Attack now proceeds normally
-            local snap   = { attacker = tw.attackerSnap, defender = tw.defenderSnap }
-            local result = Phases.attack(match, tw.attackerSlot, tw.defenderSlot)
-            if result then
-                if result.outcome == "cover_needed" then
-                    self.coverWindow = {
-                        attackerSlot     = tw.attackerSlot,
-                        emptySlot        = tw.defenderSlot,
-                        eligibleCoverers = result.eligibleCoverers,
-                        attackerSnap     = tw.attackerSnap,
-                    }
-                else
-                    self:_pushCombat(snap, result)
-                end
-            end
+            open = self:_resumeAttack(tw)
             local atkName = tw.attackerSnap and tw.attackerSnap.name or "Striker"
             self:_pushTrapActivation("player", trapDef,
                 "Manager's Challenge! " .. atkName .. " onside — attack proceeds. (-1000 LP)")
@@ -344,7 +386,7 @@ function Store:resolveTrap(trapSlotIndex)
             self:_pushTrapActivation("opponent", tw.aiTrapCard.definition,
                 "Your " .. atkName .. " was caught offside!")
         end
-        self:_checkHalf()
+        if not open then self:_checkHalf() end
         self:_notify()
         return
     end
@@ -394,29 +436,14 @@ function Store:resolveTrap(trapSlotIndex)
             ctxText = atkName .. " blocked — offside!"
 
         elseif tw.type == "pre_attack" and ability == "MANAGERS_CHALLENGE" then
-            -- MC negates the opponent's OFFSIDE; attack proceeds + pay 1000 LP
+            -- MC lets the attack through + pay 1000 LP
             match.players.player.lp = match.players.player.lp - 1000
             -- Find and discard AI's OFFSIDE that was about to fire
             local aiOff, aiOffIdx = self:_findTrap(match.players.opponent.pitch, "OFFSIDE")
             if aiOff then Phases.activateTrap(match, "opponent", aiOffIdx) end
-            -- Execute the attack
-            local snap   = { attacker = tw.attackerSnap, defender = tw.defenderSnap }
-            local result = Phases.attack(match, tw.attackerSlot, tw.defenderSlot)
-            if result then
-                if result.outcome == "cover_needed" then
-                    self.coverWindow = {
-                        attackerSlot     = tw.attackerSlot,
-                        emptySlot        = tw.defenderSlot,
-                        eligibleCoverers = result.eligibleCoverers,
-                        attackerSnap     = tw.attackerSnap,
-                    }
-                else
-                    self:_pushCombat(snap, result)
-                end
-            end
-            ctxText = "Offside overruled by Manager's Challenge! (-1000 LP)"
-            self:_checkHalf()
-            self:_pushTrapActivation("player", trapDef, ctxText)
+            local open = self:_resumeAttack(tw)
+            self:_pushTrapActivation("player", trapDef, "Offside overruled by Manager's Challenge! (-1000 LP)")
+            if not open then self:_checkHalf() end
             self:_notify()
             return
 
@@ -426,13 +453,13 @@ function Store:resolveTrap(trapSlotIndex)
             ctxText = atkName .. " sent off after winning combat"
 
         elseif tw.type == "post_damage" and ability == "VAR" then
-            -- Undo LP damage, return AI's striker to opponent's hand
-            match.players.player.lp = match.players.player.lp + (tw.damage or 0)
+            -- Undo LP damage, return the AI's shooter to its hand
+            State.refundDamage(match, "opponent", tw.damage or 0)
             local oppPitch = match.players.opponent.pitch
-            local striker  = oppPitch.strikers[tw.attackerSlot.index]
-            if striker then
-                table.insert(match.players.opponent.hand, striker.definition)
-                oppPitch.strikers[tw.attackerSlot.index] = nil
+            local shooter  = Phases._getSlot(oppPitch, tw.attackerSlot)
+            if shooter then
+                table.insert(match.players.opponent.hand, shooter.definition)
+                Phases._setSlot(oppPitch, tw.attackerSlot, nil)
             end
             local atkName = tw.attackerSnap and tw.attackerSnap.name or "Striker"
             ctxText = "Goal overturned! " .. atkName .. " returned to opponent's hand."
@@ -450,23 +477,12 @@ function Store:resolveTrap(trapSlotIndex)
 
         self:_pushTrapActivation("player", trapDef, ctxText)
     else
-        -- Pass
+        -- Pass: a waiting attack goes ahead (and may open its own windows)
         if tw.type == "pre_attack" then
-            local snap   = { attacker = tw.attackerSnap, defender = tw.defenderSnap }
-            local result = Phases.attack(match, tw.attackerSlot, tw.defenderSlot)
-            if result then
-                if result.outcome == "cover_needed" then
-                    self.coverWindow = {
-                        attackerSlot     = tw.attackerSlot,
-                        emptySlot        = tw.defenderSlot,
-                        eligibleCoverers = result.eligibleCoverers,
-                        attackerSnap     = tw.attackerSnap,
-                    }
-                else
-                    self:_pushCombat(snap, result)
-                    self:_checkHalf()
-                end
-            end
+            local open = self:_resumeAttack(tw)
+            if not open then self:_checkHalf() end
+            self:_notify()
+            return
         end
         -- post_destroy, post_damage, post_last_defender pass: no further action
     end
@@ -477,39 +493,35 @@ end
 
 -- Play a strategy card from hand.
 function Store:playStrategy(cardId, opts)
-    local result, err = Phases.playStrategy(self.match, cardId, opts)
-    if result then
-        -- Strategy shots (DIRECT_FREE_KICK / PENALTY) push to combat queue
-        if result.outcome == "damage" or result.outcome == "tie" or result.outcome == "save" then
-            -- Build a snap for the strategy shot
-            local activeId   = self.match.activePlayer
-            local opponentId = activeId == "player" and "opponent" or "player"
-            local keeper     = self.match.players[opponentId].pitch.keeper
-            -- Find which striker was used (the best one — already exhausted)
-            local strikerSnap = nil
-            for i = 1, require("engine.constants").PITCH.MAX_STRIKERS do
-                local c = self.match.players[activeId].pitch.strikers[i]
-                if c and c.exhausted and c.usedAsAttacker then
-                    strikerSnap = {
-                        name    = c.definition.name,
-                        type    = c.definition.type,
-                        mode    = "attack",
-                        atk     = require("engine.combat").getStat(c, "attack"),
-                        def     = require("engine.combat").getStat(c, "defend"),
-                        isKeeper = false,
-                    }
-                    break
+    local match    = self.match
+    local activeId = match.activePlayer
+
+    -- Strategy shots are snapshotted before they resolve: the best striker and the keeper
+    -- as they stand now (Penalty: the keeper's base DEF).
+    local shotSnap
+    for _, c in ipairs(match.players[activeId].hand) do
+        if c.id == cardId and (c.ability == "DIRECT_FREE_KICK" or c.ability == "PENALTY") then
+            local _, bestSlot = Phases._bestStriker(match.players[activeId].pitch)
+            if bestSlot then
+                shotSnap = self:_snapshotAttack(bestSlot, { type = "keeper", index = 0 })
+                local keeper = match.players[State.other(activeId)].pitch.keeper
+                if c.ability == "PENALTY" and keeper and shotSnap.defender then
+                    shotSnap.defender.def = Combat.getStat(keeper, "defend")
                 end
             end
-            local keeperSnap = keeper and {
-                name    = keeper.definition.name,
-                type    = keeper.definition.type,
-                mode    = keeper.mode,
-                atk     = 0,
-                def     = require("engine.combat").keeperEffectiveDef(keeper, self.match.players[opponentId].pitch),
-                isKeeper = true,
-            }
-            self:_pushCombat({ attacker = strikerSnap, defender = keeperSnap }, result)
+            break
+        end
+    end
+
+    local result, err = Phases.playStrategy(match, cardId, opts)
+    if result then
+        local o = result.outcome
+        if shotSnap and (o == "damage" or o == "tie" or o == "save") then
+            self:_pushCombat(shotSnap, result)
+            if self:_afterCombatTraps(shotSnap, result, result.attackerSlot) then
+                self:_notify()
+                return result, err
+            end
         end
         self:_checkHalf()
         self:_notify()
@@ -524,7 +536,7 @@ function Store:resolveCover(covererSlot)
     local attackerSlot = self.coverWindow.attackerSlot
     local emptySlot    = self.coverWindow.emptySlot
     local match        = self.match
-    local opponentId   = match.activePlayer == "player" and "opponent" or "player"
+    local opponentId   = State.other(match.activePlayer)
 
     -- When the player passes (no cover), the attacker advances to the next occupied line.
     -- Snap that card instead of the empty slot so the combat overlay shows the real defender.
@@ -540,6 +552,10 @@ function Store:resolveCover(covererSlot)
 
     if result and result.outcome ~= "wasted" and result.outcome ~= "cover_needed" then
         self:_pushCombat(snap, result)
+        if self:_afterCombatTraps(snap, result, attackerSlot) then
+            self:_notify()
+            return result, err
+        end
     end
 
     self:_checkHalf()
@@ -562,9 +578,12 @@ end
 -- ── Private helpers ────────────────────────────────────────────────────────────
 
 function Store:_checkHalf()
-    local hw = State.checkHalfEnd(self.match)
+    local hw, reason = State.checkHalfEnd(self.match)
     if hw and not self.match.winner then
-        State.endHalf(self.match, hw)
+        State.endHalf(self.match, hw, reason)
+        -- A window from the old half must not resolve against the new half's board.
+        self.trapWindow  = nil
+        self.coverWindow = nil
     end
 end
 
@@ -594,8 +613,7 @@ end
 function Store:_snapshotAttack(attackerSlot, defenderSlot)
     local match      = self.match
     local activeId   = match.activePlayer
-    local opponentId = activeId == "player" and "opponent" or "player"
-    local Combat     = require("engine.combat")
+    local opponentId = State.other(activeId)
 
     local function getCard(pitch, slot)
         if not slot then return nil end
@@ -639,7 +657,7 @@ function Store:_snapshotAttack(attackerSlot, defenderSlot)
             name      = d.name,
             type      = d.type,
             mode      = card.mode,
-            wasHidden = (card.mode == "defense"),
+            wasHidden = (card.mode == "defense" and not card.revealed),
             atk       = atkStat,
             def       = defStat,
             atkBonus  = atkBonus,

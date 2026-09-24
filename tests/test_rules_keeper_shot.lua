@@ -1,0 +1,42 @@
+local T = require("tests.t")
+local H = require("tests.helpers")
+
+-- Player's striker slot holds `attackerDef`; opponent has only a face-down keeper (DEF 1600).
+local function board(attackerDef)
+    local m = H.match()
+    H.place(m, "player", "striker", 1, attackerDef)
+    local keeper = H.place(m, "opponent", "keeper", 0, H.card("keeper", 300, 1600), "defense")
+    return m, keeper, H.store(m)
+end
+
+T.test("keeper-as-shot: a defender card advancing from a striker slot shoots instead of fighting", function()
+    local m, keeper, s = board(H.card("defender", 1800, 1500))
+    local r = s:declareAttack(H.slot("striker", 1), H.slot("defender", 1))
+    T.eq(r.outcome, "damage"); T.eq(r.damage, 200)
+    T.eq(m.players.opponent.lp, 3800)
+    T.eq(m.players.opponent.pitch.keeper, keeper, "keeper never destroyed")
+end)
+
+T.test("keeper-as-shot: a losing shot is a save — no card destroyed, no LP lost", function()
+    local m, keeper, s = board(H.card("defender", 1500, 1500))
+    local r = s:declareAttack(H.slot("striker", 1), H.slot("defender", 1))
+    T.eq(r.outcome, "save")
+    T.ok(m.players.player.pitch.strikers[1] ~= nil, "attacker survives")
+    T.eq(m.players.opponent.pitch.keeper, keeper)
+    T.eq(m.players.player.lp, 4000); T.eq(m.players.opponent.lp, 4000)
+end)
+
+T.test("keeper-as-shot: a midfielder card in a striker slot shoots when it advances", function()
+    local m, _, s = board(H.card("midfielder", 1800, 1500))
+    local r = s:declareAttack(H.slot("striker", 1), H.slot("defender", 1))
+    T.eq(r.outcome, "damage"); T.eq(m.players.opponent.lp, 3800)
+end)
+
+T.test("keeper-as-shot: the midfielder slot still can't shoot the keeper", function()
+    local m = H.match()
+    H.place(m, "player", "midfielder", 0, H.card("midfielder", 1800, 1500))
+    H.place(m, "opponent", "keeper", 0, H.card("keeper", 300, 1600))
+    local r = H.store(m):declareAttack(H.slot("midfielder"), H.slot("keeper"))
+    T.eq(r.outcome, "wasted"); T.eq(r.reason, "midfielder_keeper")
+    T.ok(m.players.opponent.pitch.keeper ~= nil)
+end)

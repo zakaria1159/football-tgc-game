@@ -23,19 +23,28 @@ T.test("opponent's face-down midfielder hides the crown (unknown), even if it wo
     T.eq(Stats.crownOwner(match(mid("defense", 700, 1200), mid("attack", 1000, 800))), "player")
 end)
 
+T.test("any unrevealed face-down card in the opponent's midfield slot hides the crown", function()
+    -- A face-down defender there has 0 power; showing the crown would leak its type.
+    T.eq(Stats.crownOwner(match(mid("attack", 1000, 800), mid("defense", 700, 1200, "defender"))), nil)
+    T.eq(Stats.crownOwner(match(mid("attack", 1000, 800), mid("defense", 700, 1200, "striker"))), nil)
+    -- Once revealed it is known: a revealed non-midfielder has no power.
+    local revealed = mid("defense", 700, 1200, "defender"); revealed.revealed = true
+    T.eq(Stats.crownOwner(match(mid("attack", 1000, 800), revealed)), "player")
+end)
+
 T.test("no crown on a tie or without real midfielders", function()
     T.eq(Stats.crownOwner(match(nil, nil)), nil)
     T.eq(Stats.crownOwner(match(mid("attack", 1000, 0, "striker"), nil)), nil)
     T.eq(Stats.crownOwner(match(mid("attack", 1000, 0), mid("attack", 1000, 0))), nil)
 end)
 
-T.test("summons reads the player's limit and flags the midfield bonus", function()
+T.test("summons reads the player's limit (Time Wasting) and has no midfield bonus", function()
     local m = match(nil, nil)
     m.summonCount = 1
-    m.players.player.nextTurnSummonLimit = 3
-    local used, max, bonus = Stats.summons(m)
-    T.eq(used, 1); T.eq(max, 3); T.eq(bonus, true)
+    m.players.player.nextTurnSummonLimit = 1
+    local used, max, extra = Stats.summons(m)
+    T.eq(used, 1); T.eq(max, 1); T.eq(extra, nil)
     m.players.player.nextTurnSummonLimit = nil
-    used, max, bonus = Stats.summons(m)
-    T.eq(used, 1); T.eq(max, 2); T.eq(bonus, false)
+    used, max = Stats.summons(m)
+    T.eq(used, 1); T.eq(max, 2)
 end)

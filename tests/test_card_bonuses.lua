@@ -28,3 +28,13 @@ T.test("no pitch or a trap gives no bonus", function()
     local pitch = { defenders = {}, strikers = {}, midfielder = card("midfielder", 1500, 900) }
     a, d = Card.bonuses(card("trap", 0, 0, "trap", "defense"), pitch); T.eq(a, 0); T.eq(d, 0)
 end)
+
+T.test("opponent view: an unrevealed face-down midfielder gives no visible DEF bonus", function()
+    local faceDown = card("midfielder", 1500, 900, nil, "defense")
+    local pitch = { defenders = {}, strikers = {}, midfielder = faceDown }
+    local d = card("defender", 800, 1200)
+    local _, own = Card.bonuses(d, pitch);        T.eq(own, 200, "owner sees it")
+    local _, opp = Card.bonuses(d, pitch, true);  T.eq(opp, 0, "hidden from the other side")
+    faceDown.revealed = true
+    local _, rev = Card.bonuses(d, pitch, true);  T.eq(rev, 200, "shown once revealed")
+end)

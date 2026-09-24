@@ -75,6 +75,7 @@ ui/               — rendering (pitch, hand, HUD, overlays, character)
 ai/               — opponent AI
 assets/           — fonts, audio, card art, character sprites
 data/             — card definitions
+tools/            — dev tools: snapshot harness (tools/snapshot), balance simulator (lua tools/sim/sim.lua)
 rules.md          — full engine rules reference
 ```
 
@@ -82,7 +83,7 @@ rules.md          — full engine rules reference
 
 ## Game overview
 
-- Each player starts with **4000 LP** and a 30-card deck
+- Each player starts with **4000 LP** per half and a 40-card deck
 - Match is two halves — drain opponent LP to win a half
 - Win both halves → **2-0**. Split → **Extra Time**
 - Cards are placed in slots: Striker → Midfielder → Defender → Keeper

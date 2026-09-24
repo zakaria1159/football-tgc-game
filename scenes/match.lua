@@ -14,6 +14,7 @@ local AI            = require("ai.opponent")
 local Audio         = require("ui.audio")
 local Character     = require("ui.character")
 local C             = require("engine.constants")
+local State         = require("engine.state")
 local PauseMenu     = require("ui.menu.pause")
 local CardLibrary   = require("ui.menu.library")
 local Layout        = require("ui.match.layout")
@@ -96,6 +97,7 @@ local debugLogScroll = 0  -- lines scrolled from bottom
 
 -- AI state machine
 local aiPlan        = nil
+local aiPlanTag     = nil   -- AI.planTag of the turn aiPlan was made for
 local aiActionIndex = 0
 local aiTimer       = 0
 local AI_STEP_DELAY = 0.55
@@ -127,6 +129,7 @@ function Match.enter(matchStore, difficulty)
     promptWindow        = nil
     handHit             = { cards = {}, order = {}, defs = {} }
     aiPlan              = nil
+    aiPlanTag           = nil
     aiActionIndex       = 0
     aiTimer             = 0
     debugLogOpen        = false
@@ -182,7 +185,7 @@ function Match.update(dt)
         local evt = log[i]
         local p   = evt.payload or {}
         if evt.type == "midfield_control" and p.player == "player" then
-            Match.flash("MIDFIELD CONTROL +1 SUMMON", "good")
+            Match.flash("MIDFIELD CONTROL +1 CARD", "good")
         elseif evt.type == "card_drawn" then
             Match.spawnDrawAnim(p.player == "player")
         elseif evt.type == "half_end" and not match.winner then
@@ -280,8 +283,12 @@ function Match.update(dt)
     end
 
     if match.activePlayer == "opponent" then
+        -- A plan left over from the previous half (the AI won it mid-turn) is dropped, so
+        -- the AI draws and summons on its first turn of the new half.
+        if aiPlan and aiPlanTag ~= AI.planTag(match) then aiPlan = nil end
         if not aiPlan then
             aiPlan        = AI.planTurn()
+            aiPlanTag     = AI.planTag(match)
             aiActionIndex = 1
             aiTimer       = AI_STEP_DELAY
         end
@@ -292,8 +299,8 @@ function Match.update(dt)
         local action = aiPlan[aiActionIndex]
         if not action then aiPlan = nil; return end
 
-        if action.type == "attack" then Audio.play("attack") end
-        local done, extra = AI.executeAction(store, action)
+        local done, extra, attackErr = AI.executeAction(store, action)
+        if action.type == "attack" and not attackErr then Audio.play("attack") end
         aiActionIndex = aiActionIndex + 1
         aiTimer       = AI_STEP_DELAY
 
@@ -367,7 +374,8 @@ function Match.draw()
         if p.above then
             Zoom.drawInfoAbove(p.cardDef, p.src)
         else
-            Zoom.draw({ cardDef = p.cardDef, pitched = p.pitched, pitch = p.pitch, src = p.src, scale = zoomAnim.scale })
+            Zoom.draw({ cardDef = p.cardDef, pitched = p.pitched, pitch = p.pitch, hideHidden = p.hideHidden,
+                        src = p.src, scale = zoomAnim.scale })
         end
     end
 
@@ -421,7 +429,7 @@ function Match.draw()
 end
 
 -- Key + payload for the card under the mouse (nil when nothing zoomable).
--- Opponent face-down cards and traps are never zoomable (hidden information).
+-- The opponent's traps and unrevealed face-down cards are never zoomable (hidden information).
 function Match.hoverTarget(match)
     if activeCombat or activeTrapActiv or scoutReveal or pauseOpen or libraryOpen or debugLogOpen
        or match.winner or store.coverWindow or store.trapWindow then
@@ -438,9 +446,10 @@ function Match.hoverTarget(match)
             local card
             if s.slotType == "trap" then card = pitch.traps[s.slotIndex]
             else card = Match.getCardInSlot(pitch, s) end
-            if card and not (s.owner == "opponent" and card.mode == "defense") then
+            if Hover.zoomable(s.owner, s.slotType, card) then
                 return Pitch.slotKey(s.owner, s.slotType, s.slotIndex) .. ":" .. tostring(card.definition.id),
-                    { cardDef = card.definition, pitched = card, pitch = pitch, src = s }
+                    { cardDef = card.definition, pitched = card, pitch = pitch, src = s,
+                      hideHidden = s.owner == "opponent" }
             end
             return nil
         end
@@ -466,6 +475,8 @@ function Match.hintText(match)
     elseif match.phase == "attack" then
         if scoutPending then
             return "SCOUT REPORT: click an opponent face-down card to reveal  ·  ESC to cancel"
+        elseif State.isOpeningTurn(match) then
+            return "First turn of the half: no attacks or shots  ·  END TURN when done"
         elseif selectedAttackerSlot then
             return "Click an opponent slot to attack  ·  ESC to cancel"
         elseif not match.strategyPlayedThisTurn then
@@ -497,21 +508,21 @@ function Match.getHighlightedSlots(match)
     if selectedHandCard.type == "strategy" then
         if scoutPending then
             local oppPitch = match.players.opponent.pitch
-            if oppPitch.keeper and oppPitch.keeper.mode == "defense" then
+            -- Scout targets: the opponent's face-down cards that are not revealed yet.
+            local function hidden(c) return c and c.mode == "defense" and not c.revealed end
+            if hidden(oppPitch.keeper) then
                 table.insert(slots, { slotType="keeper", slotIndex=0, owner="opponent" })
             end
-            if oppPitch.midfielder and oppPitch.midfielder.mode == "defense" then
+            if hidden(oppPitch.midfielder) then
                 table.insert(slots, { slotType="midfielder", slotIndex=0, owner="opponent" })
             end
             for i = 1, C.PITCH.MAX_DEFENDERS do
-                local c = oppPitch.defenders[i]
-                if c and c.mode == "defense" then
+                if hidden(oppPitch.defenders[i]) then
                     table.insert(slots, { slotType="defender", slotIndex=i, owner="opponent" })
                 end
             end
             for i = 1, C.PITCH.MAX_STRIKERS do
-                local c = oppPitch.strikers[i]
-                if c and c.mode == "defense" then
+                if hidden(oppPitch.strikers[i]) then
                     table.insert(slots, { slotType="striker", slotIndex=i, owner="opponent" })
                 end
             end
@@ -553,6 +564,7 @@ end
 
 function Match.getAttackTargetSlots(match)
     if match.phase ~= "attack" or not selectedAttackerSlot then return {} end
+    if State.isOpeningTurn(match) then return {} end   -- first turn of the half: hint, no targets
     local slots      = {}
     local oPitch     = match.players.opponent.pitch
     local slotType   = selectedAttackerSlot.type
@@ -761,7 +773,7 @@ function Match.mousepressed(x, y, button)
             -- Scout Report: resolve target when player clicks an opponent face-down slot
             if scoutPending and slot.owner == "opponent" then
                 local oppCard = Match.getCardInSlot(match.players.opponent.pitch, slot)
-                if oppCard and oppCard.mode == "defense" then
+                if oppCard and oppCard.mode == "defense" and not oppCard.revealed then
                     local result, err = store:playStrategy(selectedHandCard.id, {
                         targetSlot = { owner = "opponent", type = slot.slotType, index = slot.slotIndex }
                     })
@@ -874,12 +886,17 @@ function Match.mousepressed(x, y, button)
 
             -- Attack phase: declare attack against opponent slot
             if match.phase == "attack" and slot.owner == "opponent" and selectedAttackerSlot then
-                Audio.play("attack")
-                Character.setState("attacking")
-                store:declareAttack(
+                local _, attackErr = store:declareAttack(
                     selectedAttackerSlot,
                     { type=slot.slotType, index=slot.slotIndex }
                 )
+                if attackErr then
+                    Match.flash(attackErr)
+                else
+                    -- Only an accepted attack gets the sound and the attack pose.
+                    Audio.play("attack")
+                    Character.setState("attacking")
+                end
                 while #store.combatQueue > 0 do
                     table.insert(combatQueue, store:popCombat())
                 end

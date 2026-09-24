@@ -38,7 +38,8 @@ local function newPlayerState(id, deck)
     if not hasKeeper then
         for i = handSize + 1, #shuffled do
             if shuffled[i].type == "keeper" then
-                shuffled[i], shuffled[math.random(1, handSize)] = shuffled[math.random(1, handSize)], shuffled[i]
+                local j = math.random(1, handSize)
+                shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
                 break
             end
         end
@@ -58,6 +59,7 @@ local function newPlayerState(id, deck)
         lp               = C.MATCH.STARTING_LP,
         halvesWon        = 0,
         totalDamageDealt = 0,
+        halfDamageDealt  = 0,       -- LP damage dealt this half (half-limit / Extra Time decider)
         nextTurnSummonLimit = nil,  -- set by TIME_WASTING trap
     }
 end
@@ -69,7 +71,8 @@ function State.newPitchedCard(definition, slotType, mode)
         exhausted         = false,
         mode              = mode or "attack",   -- "attack" or "defense"
         cannotActNextTurn = false,              -- set true after covering
-        usedAsAttacker    = false,              -- set true permanently after card initiates an attack
+        usedAsAttacker    = false,              -- set when it attacks; cleared at the start of its owner's turn
+        revealed          = false,              -- face-down card seen by both players; still in defense mode
         slotType          = slotType or definition.type,
     }
 end
@@ -82,6 +85,7 @@ function State.newMatch(playerDeck, opponentDeck)
         half         = 1,
         phase        = "draw",
         activePlayer = "player",
+        halfStarter  = "player",   -- who kicks off this half (the human, every half)
         summonCount  = 0,
         coverUsed    = { player = false, opponent = false },
         extraTurnsLeft = 0,
@@ -115,6 +119,46 @@ function State.opponentState(matchState)
     return matchState.players[opp]
 end
 
+-- The other seat.
+function State.other(playerId)
+    return playerId == "player" and "opponent" or "player"
+end
+
+-- True on the first turn of a half (Extra Time included) for the player who started it:
+-- that turn has no attacks and no attacking strategies (Direct Free Kick, Penalty).
+function State.isOpeningTurn(matchState)
+    return matchState.turn == 1 and matchState.activePlayer == (matchState.halfStarter or "player")
+end
+
+-- dealerId deals `amount` LP damage to the other seat.
+function State.dealDamage(matchState, dealerId, amount)
+    local dealer = matchState.players[dealerId]
+    local victim = matchState.players[State.other(dealerId)]
+    victim.lp = victim.lp - amount
+    dealer.totalDamageDealt = dealer.totalDamageDealt + amount
+    dealer.halfDamageDealt  = (dealer.halfDamageDealt or 0) + amount
+end
+
+-- Undo damage (VAR): the victim gets the LP back and the dealer's totals drop.
+function State.refundDamage(matchState, dealerId, amount)
+    local dealer = matchState.players[dealerId]
+    local victim = matchState.players[State.other(dealerId)]
+    victim.lp = victim.lp + amount
+    dealer.totalDamageDealt = dealer.totalDamageDealt - amount
+    dealer.halfDamageDealt  = (dealer.halfDamageDealt or 0) - amount
+end
+
+-- Winner of a half that ran out of rounds: more LP → more damage dealt this half →
+-- the player who went second this half.
+function State.decideOnTime(matchState)
+    local p = matchState.players.player
+    local o = matchState.players.opponent
+    if p.lp ~= o.lp then return p.lp > o.lp and "player" or "opponent" end
+    local pd, od = p.halfDamageDealt or 0, o.halfDamageDealt or 0
+    if pd ~= od then return pd > od and "player" or "opponent" end
+    return State.other(matchState.halfStarter or "player")
+end
+
 function State.drawCard(matchState, playerId)
     local player = matchState.players[playerId]
     if #player.deck == 0 then return nil end
@@ -145,24 +189,31 @@ function State.activeCount(pitch, line)
     return count
 end
 
--- Check if a half has ended (LP <= 0). Returns winner id or nil.
+-- Check if a half has ended. Returns winnerId, reason ("lp" | "time"), or nil.
+--   LP:   a player at 0 LP or less loses the half.
+--   Time: halves 1 and 2 end after C.MATCH.HALF_ROUND_LIMIT rounds; Extra Time after
+--         C.MATCH.EXTRA_TIME_TURNS rounds (extraTurnsLeft reaches 0).
 function State.checkHalfEnd(matchState)
     local p = matchState.players.player
     local o = matchState.players.opponent
-    if p.lp <= 0 then return "opponent" end
-    if o.lp <= 0 then return "player" end
-    if matchState.half == "extra" and matchState.extraTurnsLeft <= 0 then
-        -- Extra Time: whoever dealt more total LP damage wins
-        if p.totalDamageDealt > o.totalDamageDealt then return "player"
-        elseif o.totalDamageDealt > p.totalDamageDealt then return "opponent"
-        else return "player" end  -- tiebreak: player wins
+    if p.lp <= 0 then return "opponent", "lp" end
+    if o.lp <= 0 then return "player", "lp" end
+    if matchState.half == "extra" then
+        if matchState.extraTurnsLeft <= 0 then
+            -- Extra Time LP → Extra Time damage → the player who went second
+            return State.decideOnTime(matchState), "time"
+        end
+        return nil
+    end
+    if matchState.turn > C.MATCH.HALF_ROUND_LIMIT then
+        return State.decideOnTime(matchState), "time"
     end
     return nil
 end
 
 -- Called when a half ends. Advances to next half or ends the match.
-function State.endHalf(matchState, halfWinner)
-    State.log(matchState, "half_end", { half = matchState.half, winner = halfWinner })
+function State.endHalf(matchState, halfWinner, reason)
+    State.log(matchState, "half_end", { half = matchState.half, winner = halfWinner, reason = reason or "lp" })
     matchState.players[halfWinner].halvesWon = matchState.players[halfWinner].halvesWon + 1
 
     local p = matchState.players.player
@@ -195,14 +246,18 @@ function State._resetHalf(matchState, newHalf)
     matchState.half         = newHalf
     matchState.turn         = 1
     matchState.phase        = "draw"
-    matchState.activePlayer = "player"
+    matchState.halfStarter  = "player"
+    matchState.activePlayer = matchState.halfStarter
     matchState.summonCount  = 0
     matchState.coverUsed    = { player = false, opponent = false }
     matchState.strategyPlayedThisTurn = false
     matchState.bypassCoverNextStrikerAttack = nil
 
-    for _, ps in pairs(matchState.players) do
+    -- Fixed order (not pairs): the redeal consumes math.random, so seeded runs repeat.
+    for _, seat in ipairs({ "player", "opponent" }) do
+        local ps = matchState.players[seat]
         ps.lp                  = C.MATCH.STARTING_LP
+        ps.halfDamageDealt     = 0
         ps.nextTurnSummonLimit = nil
 
         -- Collect all non-destroyed cards (hand + pitch) back into pool for redeal.
@@ -231,7 +286,8 @@ function State._resetHalf(matchState, newHalf)
         if not hasKeeper then
             for i = handSize + 1, #shuffled do
                 if shuffled[i].type == "keeper" then
-                    shuffled[i], shuffled[math.random(1, handSize)] = shuffled[math.random(1, handSize)], shuffled[i]
+                    local j = math.random(1, handSize)
+                    shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
                     break
                 end
             end

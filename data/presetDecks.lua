@@ -29,21 +29,22 @@ local Decks = {}
 Decks.tikitaka = {
     name  = "The Beautiful Game",
     cards = concat(
-        -- Field (32)
-        rep(find(keepers,    "keeper-sweeper-keeper"),    2),
+        -- Field (29)
+        rep(find(keepers,    "keeper-sweeper-keeper"),    1),
+        rep(find(keepers,    "keeper-iron-fists"),        1),
         rep(find(keepers,    "keeper-reliable-hands"),    1),
         rep(find(defenders,  "def-ball-playing"),         3),
         rep(find(defenders,  "def-the-rock"),             2),
         rep(find(defenders,  "def-libero"),               2),
         rep(find(defenders,  "def-pressing-back"),        2),
         rep(find(midfielders,"mid-creative-playmaker"),   2),
-        rep(find(midfielders,"mid-deep-lying-playmaker"), 3),
+        rep(find(midfielders,"mid-deep-lying-playmaker"), 1),
         rep(find(midfielders,"mid-box-to-box"),           2),
         rep(find(strikers,   "str-poacher"),              3),
         rep(find(strikers,   "str-clinical-finisher"),    2),
-        rep(find(strikers,   "str-complete-forward"),     2),
+        rep(find(strikers,   "str-complete-forward"),     3),
         rep(find(strikers,   "str-fox-in-the-box"),       1),
-        rep(find(strikers,   "str-speed-demon"),          1),
+        rep(find(strikers,   "str-speed-demon"),          2),
         rep(find(midfielders,"mid-pressing-monster"),      1),
         -- Traps (6)
         rep(find(traps, "trap-var"),                      1),

@@ -15,7 +15,7 @@ function Combat.getStat(card, role)
 end
 
 -- Keeper effective DEF = base DEF + (active defenders × 300) + (active midfielder × 150)
--- Active = card exists and has not been used as an attacker this turn.
+-- Active = card exists and has not attacked since the start of its owner's latest turn.
 function Combat.keeperEffectiveDef(keeper, pitch)
     local base = (keeper.definition.stats and keeper.definition.stats.def) or 0
     local bonus = 0
@@ -104,13 +104,19 @@ function Combat.resolve(attacker, defender, attackerSlotType, defenderSlotType, 
     }
 end
 
--- Resolve a striker shot against the keeper.
+-- Resolve a shot at the goal. keeper == nil → open goal: a goal for the full shot ATK.
 -- penaltyMode = true → keeper uses base DEF only (no active defender/midfielder bonuses).
--- Returns { outcome, damage, margin }
+-- attackerSlotType: only a striker-slot shooter gets the midfielder card ATK bonus.
+-- Returns { outcome, damage, margin, openGoal }
 -- outcome: "damage" | "tie" | "save"
-function Combat.resolveShot(striker, keeper, oppPitch, strikerPitch, penaltyMode)
+function Combat.resolveShot(striker, keeper, oppPitch, strikerPitch, penaltyMode, attackerSlotType)
     local atkStat = Combat.getStat(striker, "attack")
-                  + Combat.midfielderCardAtkBonus(strikerPitch)
+    if attackerSlotType == "striker" then
+        atkStat = atkStat + Combat.midfielderCardAtkBonus(strikerPitch)
+    end
+    if not keeper then
+        return { outcome = "damage", damage = atkStat, margin = atkStat, openGoal = true }
+    end
     local defStat = penaltyMode
         and Combat.getStat(keeper, "defend")
         or  Combat.keeperEffectiveDef(keeper, oppPitch)

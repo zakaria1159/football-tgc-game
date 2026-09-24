@@ -64,3 +64,12 @@ T.test("pitched keeper shows effective DEF", function()
     T.ok(has(lines, "Effective DEF 1000 + 300 = 1300"))
     T.ok(has(lines, "Mode: DEFENSE (face-down)"))
 end)
+
+T.test("opponent zoom: no DEF bonus line from an unrevealed face-down midfielder", function()
+    local def = { type = "defender", stats = { atk = 800, def = 1200 } }
+    local pitched = { definition = def, slotType = "defender", mode = "attack" }
+    local pitch = { defenders = { pitched }, strikers = {},
+        midfielder = { definition = { type = "midfielder", stats = { atk = 1500, def = 900 } }, mode = "defense" } }
+    T.ok(has(Zoom.statusLines(def, pitched, pitch), "DEF 1200 + 200 = 1400"), "own card")
+    T.ok(not has(Zoom.statusLines(def, pitched, pitch, true), "DEF 1200 + 200 = 1400"), "opponent card")
+end)
