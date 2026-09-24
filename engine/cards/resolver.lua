@@ -104,6 +104,14 @@ function R.logParts(matchState, ownerId, parts, result)
     end
 end
 
+-- True when a stat part list (R.atkBonus / R.defBonus parts) has this keyword.
+function R.firedIn(parts, keyword)
+    for _, p in ipairs(parts or {}) do
+        if p.keyword == keyword then return true end
+    end
+    return false
+end
+
 -- ── Stat bonuses ──────────────────────────────────────────────────────────────
 
 -- Midfielder card bonus for striker-slot ATK (a midfielder-type card in the midfielder
@@ -331,18 +339,20 @@ function R.pressTarget(oppPitch)
     return nil
 end
 
--- Summon hook (engine/phases.lua Phases.summon), after the card is on the pitch.
+-- Summon hook (engine/phases.lua Phases._afterSummon), after the card is on the pitch.
 --   Press: exhaust one enemy defender-slot card (R.pressTarget) for this turn, so it can't
 --   cover; pitched.pressed marks it and Phases.endTurn clears both flags at this turn's end.
+-- Returns true when Press fired (it costs its card stamina: Phases._afterSummon).
 function R.onSummon(matchState, ownerId, pitched)
-    if not R.has(pitched, "PRESS") then return end
+    if not R.has(pitched, "PRESS") then return false end
     local oppPitch = matchState.players[State.other(ownerId)].pitch
     local i = R.pressTarget(oppPitch)
-    if not i then return end
+    if not i then return false end
     local target = oppPitch.defenders[i]
     target.exhausted = true
     target.pressed   = true
     R.trigger(matchState, ownerId, pitched, "PRESS", { target = { type = "defender", index = i } })
+    return true
 end
 
 -- Midfield control hook (engine/phases.lua _midfieldControl) for the player in control.

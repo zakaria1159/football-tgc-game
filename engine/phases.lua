@@ -3,6 +3,7 @@ local T      = require("engine.types")
 local State  = require("engine.state")
 local Combat = require("engine.combat")
 local Resolver = require("engine.cards.resolver")
+local Stamina = require("engine.stamina")
 
 local Phases = {}
 
@@ -107,7 +108,7 @@ function Phases.summon(matchState, cardId, slotType, slotIndex, mode, freeSummon
                 { player = matchState.activePlayer, card = cardId, slot = "keeper", index = 0,
                   mode = mode, action = "keeper_swap", name = cardDef.name,
                   replaced = old.definition.id, replacedName = old.definition.name })
-            Resolver.onSummon(matchState, matchState.activePlayer, pitched)
+            Phases._afterSummon(matchState, matchState.activePlayer, pitched)
             return true
         end
         player.pitch.keeper = pitched
@@ -148,8 +149,16 @@ function Phases.summon(matchState, cardId, slotType, slotIndex, mode, freeSummon
     State.log(matchState, T.EventType.CARD_PLAYED,
         { player = matchState.activePlayer, card = cardId, slot = slotType,
           index = slotIndex, mode = mode })
-    Resolver.onSummon(matchState, matchState.activePlayer, pitched)   -- Press
+    Phases._afterSummon(matchState, matchState.activePlayer, pitched)   -- Press
     return true
+end
+
+-- Summon hooks once a card is on the pitch: Press, which costs its card
+-- C.STAMINA.ABILITY_COST when it fires.
+function Phases._afterSummon(matchState, ownerId, pitched)
+    if Resolver.onSummon(matchState, ownerId, pitched) then
+        Phases._spend(matchState, ownerId, pitched, C.STAMINA.ABILITY_COST)
+    end
 end
 
 -- May the active player bring cardDef on as a keeper substitution now? A keeper card from
@@ -443,6 +452,7 @@ function Phases._shootAtGoal(matchState, attacker, attackerSlot, opponentId, one
     if attackerSlot.type == "midfielder" then
         attacker.exhausted      = true
         attacker.usedAsAttacker = true  -- a wasted attack still counts (keeper +150 lost)
+        Phases._spend(matchState, matchState.activePlayer, attacker, C.STAMINA.ACTION_COST)
         State.log(matchState, "attack_wasted", { reason = "midfielder_keeper" })
         return { outcome = "wasted", reason = "midfielder_keeper" }
     end
@@ -479,6 +489,11 @@ function Phases.resolveCover(matchState, attackerSlot, originalEmptySlot, covere
         local result  = Phases._doCombat(matchState, attacker, coverer, attackerSlot, covererSlot,
                                          opponentId, true)
         if keyword then Resolver.trigger(matchState, opponentId, coverer, keyword, nil, result) end
+        -- Stamina: covering costs the coverer C.STAMINA.ACTION_COST, won or lost (a coverer
+        -- destroyed on a tie has left the pitch).
+        if not result.defenderDestroyed then
+            Phases._spend(matchState, opponentId, coverer, C.STAMINA.ACTION_COST)
+        end
         return result
     else
         -- Let through: advance to next occupied line
@@ -492,6 +507,7 @@ function Phases._handleEmpty(matchState, attacker, attackerSlot, emptySlot, oppo
     -- Defenders attacking an empty striker slot: no covering, no advance — just wasted
     if emptySlot.type == "striker" then
         attacker.exhausted = true
+        Phases._spend(matchState, matchState.activePlayer, attacker, C.STAMINA.ACTION_COST)
         State.log(matchState, "attack_wasted", { reason = "empty_striker_slot" })
         return { outcome = "wasted", reason = "empty_striker_slot" }
     end
@@ -500,6 +516,7 @@ function Phases._handleEmpty(matchState, attacker, attackerSlot, emptySlot, oppo
     if attackerSlot.type == "midfielder" and emptySlot.type == "midfielder" then
         attacker.exhausted      = true
         attacker.usedAsAttacker = true  -- a wasted attack still counts (keeper +150 lost)
+        Phases._spend(matchState, matchState.activePlayer, attacker, C.STAMINA.ACTION_COST)
         State.log(matchState, "attack_wasted", { reason = "midfielder_empty_midfielder" })
         return { outcome = "wasted", reason = "midfielder_empty_midfielder" }
     end
@@ -689,6 +706,16 @@ function Phases._doCombat(matchState, attacker, defender, attackerSlot, defender
               source = defenderFaceDown and "facedown_penalty" or "battle_damage" })
     end
 
+    -- Stamina: the attack costs its attacker C.STAMINA.ACTION_COST once it resolves (a
+    -- destroyed card has left the pitch); the coverer's cost is paid in Phases.resolveCover.
+    -- Counter-press costs its card C.STAMINA.ABILITY_COST more when it fired.
+    if not result.attackerDestroyed then
+        Phases._spend(matchState, activeId, attacker, C.STAMINA.ACTION_COST)
+    end
+    if not result.defenderDestroyed and Resolver.firedIn(result.defParts, "COUNTER_PRESS") then
+        Phases._spend(matchState, opponentId, defender, C.STAMINA.ABILITY_COST)
+    end
+
     -- Hard tackle, Build-up
     Resolver.onFightResolved(matchState, {
         attackerId = activeId, defenderId = opponentId,
@@ -716,6 +743,7 @@ function Phases._goalAttempt(matchState, striker, keeper, attackerSlot, opponent
 
     striker.usedAsAttacker = true
     striker.exhausted      = true
+    Phases._spend(matchState, activeId, striker, C.STAMINA.ACTION_COST)   -- stamina: the shot
 
     if result.outcome == "damage" then
         if keeper then keeper.exhausted = true end
@@ -766,6 +794,10 @@ function Phases.endTurn(matchState)
     end
 
     recoverPitch(matchState.players[activeId].pitch)
+    -- Stamina: every field card on the active player's pitch spends C.STAMINA.TURN_COST.
+    for _, e in ipairs(Resolver.fieldCards(matchState.players[activeId].pitch)) do
+        Phases._spend(matchState, activeId, e.card, C.STAMINA.TURN_COST)
+    end
     matchState.players[activeId].pitch.throughBallUsed = nil   -- Through ball: once per turn
 
     State.log(matchState, T.EventType.TURN_END, { turn = matchState.turn })
@@ -849,6 +881,15 @@ end
 
 function Phases._getSlotForPlayer(matchState, playerId, slot)
     return Phases._getSlot(matchState.players[playerId].pitch, slot)
+end
+
+-- Stamina (spec B1): ownerId's card spends n (engine/stamina.lua). Logs `card_tired`
+-- { player, card, name, hidden } when that makes it Tired.
+function Phases._spend(matchState, ownerId, card, n)
+    if Stamina.spend(card, n) then
+        State.log(matchState, "card_tired", { player = ownerId, card = card.definition.id,
+            name = card.definition.name, hidden = Resolver.hidden(card) })
+    end
 end
 
 -- Returns (pitchedCard, slotTable) for the highest-ATK available striker, or nil.
