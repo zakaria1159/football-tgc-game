@@ -49,6 +49,16 @@ function AI.executeAction(store, action)
             return false, nil, err or "flip refused"
         end
 
+    elseif action.type == "subCard" then
+        -- The Substitution card: return the tired card, then the free placement in its slot.
+        local r, err = store:playStrategy(action.cardId, { returnSlot = action.returnSlot })
+        if not r or r.outcome ~= "substitution_done" then
+            return false, nil, err or "substitution refused"
+        end
+        local ok, err2 = store:freeSummon(action.inId, action.returnSlot.type, action.returnSlot.index,
+                                          action.mode)
+        if not ok then return false, nil, err2 or "free placement refused" end
+
     elseif action.type == "setTrap" then
         store:summonCard(action.cardId, "trap", 0, "defense")
 
@@ -184,6 +194,7 @@ function AI._planSummons(match)
     local limit      = (player.nextTurnSummonLimit or C.MATCH.MAX_SUMMONS_PER_TURN)
                      + (match.bonusSummons or 0)   -- Metronome
     local summonLeft = limit - (match.summonCount or 0)
+    local subsLeft   = C.MATCH.SUBS_PER_HALF - (player.subsUsed or 0)
     local actions = {}
 
     local used = {
@@ -201,6 +212,7 @@ function AI._planSummons(match)
     -- Separate hand into groups
     local hand = {}
     for _, c in ipairs(player.hand) do table.insert(hand, c) end
+    local usedHand = {}   -- indices into `hand` already planned (copies share ids)
 
     -- Press: with a face-up enemy defender to press, a Press card goes first in its group.
     local pressBoost = false
@@ -227,15 +239,16 @@ function AI._planSummons(match)
 
     -- Set traps first (free, no summon cost)
     local trapSlotsUsed = #pitch.traps
-    for _, cardDef in ipairs(hand) do
+    for hi, cardDef in ipairs(hand) do
         if cardDef.type == "trap" and trapSlotsUsed < C.PITCH.MAX_TRAPS then
             table.insert(actions, { type = "setTrap", cardId = cardDef.id })
             trapSlotsUsed = trapSlotsUsed + 1
+            usedHand[hi] = true
         end
     end
 
     -- Place field cards
-    for _, cardDef in ipairs(hand) do
+    for hi, cardDef in ipairs(hand) do
         if summonLeft <= 0 then break end
         if cardDef.type == "trap" or cardDef.type == "strategy" then goto continue end
 
@@ -246,6 +259,7 @@ function AI._planSummons(match)
                     slotType = "keeper", slotIndex = 0, mode = "defense",
                 })
                 used.keeper = true
+                usedHand[hi] = true
                 summonLeft  = summonLeft - 1
             end
         else
@@ -264,6 +278,7 @@ function AI._planSummons(match)
                    or (slot.slotType == "defender" and cardDef.keyword == "INTERCEPT") then
                     used.coverer = true   -- Intercept covers face-down too
                 end
+                usedHand[hi] = true
                 summonLeft = summonLeft - 1
             end
         end
@@ -271,19 +286,63 @@ function AI._planSummons(match)
         ::continue::
     end
 
-    -- Keeper substitution with a summon to spare, after the normal priorities.
-    if summonLeft > 0 and pitch.keeper then
+    -- Substitutions for tired cards (spec B2), once the empty slots are filled: the best
+    -- unused same-line card in hand comes on. The Substitution card goes first (P3); then
+    -- normal subs while a summon and a substitution are left.
+    local subbed = {}
+    local subCardIdx = nil
+    if AI.USE_SUBSTITUTION_CARD then
+        for hi, c in ipairs(hand) do
+            if c.ability == "SUBSTITUTION" and not usedHand[hi] then subCardIdx = hi; break end
+        end
+    end
+    for _, t in ipairs(AI._subTargets(match)) do
+        local bestIdx = nil
+        for hi, c in ipairs(hand) do
+            if not usedHand[hi] and c.type == t.slotType
+               and (not bestIdx or AI._lineValue(c) > AI._lineValue(hand[bestIdx])) then
+                bestIdx = hi
+            end
+        end
+        if bestIdx then
+            local inn  = hand[bestIdx]
+            local slot = { type = t.slotType, index = t.slotIndex }
+            local mode = AI._subMode(inn, t.slotType)
+            if subCardIdx then
+                table.insert(actions, { type = "subCard", cardId = hand[subCardIdx].id,
+                                        returnSlot = slot, inId = inn.id, mode = mode })
+                usedHand[subCardIdx], usedHand[bestIdx] = true, true
+                subCardIdx = nil
+                subbed[t.slotType .. ":" .. t.slotIndex] = true
+            elseif summonLeft > 0 and subsLeft > 0 then
+                table.insert(actions, { type = "summon", cardId = inn.id, slotType = t.slotType,
+                                        slotIndex = t.slotIndex, mode = mode })
+                usedHand[bestIdx] = true
+                summonLeft = summonLeft - 1
+                subsLeft   = subsLeft - 1
+                subbed[t.slotType .. ":" .. t.slotIndex] = true
+            end
+        end
+    end
+
+    -- Keeper substitution within the summon and substitution budgets, after the rest.
+    if summonLeft > 0 and subsLeft > 0 and pitch.keeper then
         local swap = AI._planKeeperSwap(match)
         if swap then
             table.insert(actions, swap)
             summonLeft = summonLeft - 1
+            subsLeft   = subsLeft - 1
         end
     end
 
-    -- Flips after the summons, so they see the slots this turn's summons fill; then pulls
-    -- back to defence (AI._planSwitches).
-    for _, f in ipairs(AI._planFlips(match, used)) do table.insert(actions, f) end
-    for _, sw in ipairs(AI._planSwitches(match, used)) do table.insert(actions, sw) end
+    -- Position switches after the summons (flips see the slots this turn's summons fill);
+    -- never for a card that is being substituted.
+    for _, f in ipairs(AI._planFlips(match, used)) do
+        if not subbed[f.slotType .. ":" .. f.slotIndex] then table.insert(actions, f) end
+    end
+    for _, sw in ipairs(AI._planSwitches(match, used)) do
+        if not subbed[sw.slotType .. ":" .. sw.slotIndex] then table.insert(actions, sw) end
+    end
 
     return actions
 end
@@ -330,6 +389,51 @@ function AI._planKeeperSwap(match)
     local curV = AI._keeperValue(cur.definition, enemyPenalties, cur.saves)
     if bestV - curV < AI.KEEPER_SWAP_MARGIN then return nil end
     return { type = "summon", cardId = best.id, slotType = "keeper", slotIndex = 0, mode = "defense" }
+end
+
+-- ── Substitutions (spec B2) ───────────────────────────────────────────────────
+
+-- A field card needs a sub when it is Tired (stamina 0), or is a striker-slot card at
+-- AI.SUB_STRIKER_AT or less (its next attack tires it).
+AI.SUB_STRIKER_AT        = 1
+-- Plan decision P3: tired subs use the Substitution card first (free, no sub used, the new
+-- card may attack at once). false: the AI never plays it.
+AI.USE_SUBSTITUTION_CARD = true
+
+-- A hand card's value for its line: ATK for strikers and midfielders, DEF for defenders.
+function AI._lineValue(cardDef)
+    local st = cardDef.stats or {}
+    if cardDef.type == "defender" then return st.def or 0 end
+    return st.atk or 0
+end
+
+-- The mode a substitute comes on in (as AI._pickBestSlot places that card type).
+function AI._subMode(cardDef, slotType)
+    if slotType == "striker" then return "attack" end
+    local st = cardDef.stats or {}
+    if slotType == "midfielder" then return (st.atk or 0) >= (st.def or 0) and "attack" or "defense" end
+    return (AI._coverSpecialist(cardDef) and cardDef.keyword ~= "INTERCEPT") and "attack" or "defense"
+end
+
+-- The AI's field cards that need a substitute (never keepers: they never tire), lowest
+-- stamina first, then strikers, midfielder, defenders: { card, slotType, slotIndex }.
+function AI._subTargets(match)
+    local pitch = match.players.opponent.pitch
+    local out = {}
+    local function consider(c, slotType, slotIndex)
+        if not c or c.stamina == nil then return end
+        if Stamina.tired(c) or (slotType == "striker" and c.stamina <= AI.SUB_STRIKER_AT) then
+            out[#out + 1] = { card = c, slotType = slotType, slotIndex = slotIndex, order = #out + 1 }
+        end
+    end
+    for i = 1, C.PITCH.MAX_STRIKERS do consider(pitch.strikers[i], "striker", i) end
+    consider(pitch.midfielder, "midfielder", 0)
+    for i = 1, C.PITCH.MAX_DEFENDERS do consider(pitch.defenders[i], "defender", i) end
+    table.sort(out, function(a, b)
+        if a.card.stamina ~= b.card.stamina then return a.card.stamina < b.card.stamina end
+        return a.order < b.order
+    end)
+    return out
 end
 
 -- Cover specialists: Sweeper (Libero) and Intercept (Pressing Back) cover an empty defender
