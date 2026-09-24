@@ -51,8 +51,8 @@ return {
         tags         = { "tempo" },
         stats        = {},
         maxPerDeck   = 3,
-        activationPhase = "summon_or_response",
-        abilityText  = "Play during your summon phase, OR during your attack phase in response to an opponent targeting one of your cards. Return that card to your hand. Immediately summon one card from your hand to that slot — does not cost a summon. The returned card cannot be resummoned this turn.",
+        activationPhase = "summon",
+        abilityText  = "Play during your summon phase: return one of your pitch cards to your hand, then place a card from your hand in that slot. The placement costs no summon and no substitution (SUBS), and the new card may attack this turn.",
         ability      = "SUBSTITUTION",
     },
 }

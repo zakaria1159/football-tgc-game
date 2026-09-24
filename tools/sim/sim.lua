@@ -22,6 +22,11 @@
 -- each field card's win rate when played (a seat that summoned it at least once in the
 -- match). A card outside 35–65% with at least `cardmin` games is flagged for the owner
 -- (ABILITY REVIEW line); acceptance itself is unchanged.
+--
+-- Modes & stamina (2026-09-24 modes-stamina spec, Verification): cards tired per match
+-- (card_tired events), substitutions per match per seat (card_played keeper_swap /
+-- substitution) and Substitution-card use (strategy_played SUBSTITUTION). Acceptance is
+-- unchanged.
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
@@ -159,6 +164,7 @@ local S = {
     mcTriggers = 0, mcGames = 0, mcLeaderWins = 0,
     openGoals = 0, keeperSwaps = 0, trapSet = {}, trapAct = {},
     kw = {}, cardGames = {}, cardWins = {},
+    tired = 0, subs = { player = 0, opponent = 0 }, subCard = { player = 0, opponent = 0 },
 }
 
 local ROUND_CAP = { ["1"] = C.MATCH.HALF_ROUND_LIMIT, ["2"] = C.MATCH.HALF_ROUND_LIMIT,
@@ -207,6 +213,13 @@ local function record(m, stall, deckOf)
             inc(S.trapAct, p.trap)
         elseif e.type == "ability_triggered" then
             inc(S.kw, p.keyword)
+        elseif e.type == "card_tired" then
+            S.tired = S.tired + 1
+        elseif e.type == "strategy_played" and p.ability == "SUBSTITUTION" then
+            inc(S.subCard, p.player)
+        end
+        if e.type == "card_played" and (p.action == "keeper_swap" or p.action == "substitution") then
+            inc(S.subs, p.player)
         end
         if e.type == "card_played" and p.card and p.slot ~= "trap" and played[p.player] then
             played[p.player][p.card] = true
@@ -275,6 +288,12 @@ print(string.format("midfield control: %.2f extra draws/match; the side with mor
     avg(S.mcTriggers, S.games), pct(S.mcLeaderWins, S.mcGames), S.mcGames))
 print(string.format("open goals: %.2f/match", avg(S.openGoals, S.games)))
 print(string.format("keeper swaps: %d (%.3f/match)", S.keeperSwaps, avg(S.keeperSwaps, S.games)))
+print("stamina & substitutions:")
+print(string.format("  cards tired: %.2f/match", avg(S.tired, S.games)))
+print(string.format("  substitutions/match: first seat %.2f  second seat %.2f  (keeper swaps included)",
+    avg(S.subs.player, S.games), avg(S.subs.opponent, S.games)))
+print(string.format("  Substitution card: %.3f/match  (first seat %d, second seat %d)",
+    avg(S.subCard.player + S.subCard.opponent, S.games), S.subCard.player, S.subCard.opponent))
 print("deck win rates:")
 local deckRate = {}
 for _, d in ipairs(deckNames) do

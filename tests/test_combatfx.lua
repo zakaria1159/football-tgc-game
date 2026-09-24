@@ -67,6 +67,12 @@ T.test("cardView: badge totals equal the snapshot; keeper shows its effective-DE
     local v = Fx.cardView({ name = "Iron Fists", type = "keeper", atk = 300, def = 2250,
                             atkBonus = 0, defBonus = 0, isKeeper = true }, lookup)
     T.eq(v.cardDef, keeper); T.eq(v.defBonus, 450); T.eq(v.stats.def, 1800); T.eq(v.def, 2250)
+    -- A Tired non-keeper in goal: effective DEF under its base; the face keeps the base DEF
+    -- with a negative bonus (the -300 is not lost).
+    local lib = { id = "l", name = "Libero", type = "defender", stats = { atk = 900, def = 1500 } }
+    v = Fx.cardView({ name = "Libero", type = "defender", atk = 900, def = 1200, atkBonus = 0,
+                      defBonus = -300, isKeeper = true, tired = true }, function() return lib end)
+    T.eq(v.stats.def, 1500); T.eq(v.defBonus, -300); T.eq(v.def, 1200); T.eq(v.tired, true)
     v = Fx.cardView({ name = "X", type = "striker", atk = 2500, def = 600, atkBonus = 200, defBonus = 0 }, lookup)
     T.eq(v.cardDef.name, "X"); T.eq(v.stats.atk, 2300); T.eq(v.atkBonus, 200)
     T.eq(Fx.cardView(nil, lookup), nil)

@@ -162,10 +162,11 @@ end
 
 -- ── Ability tags ──────────────────────────────────────────────────────────────
 
--- "LINK-UP +150" for an ability tag { name, amount } (no number when amount is 0).
+-- "LINK-UP +150" / "TIRED -300" for a stat tag { name, amount } (no number when amount is 0).
 function Fx.tagText(tag)
     local s = string.upper(tag.name or tag.keyword or "?")
-    if (tag.amount or 0) > 0 then s = s .. " +" .. tag.amount end
+    local n = tag.amount or 0
+    if n > 0 then s = s .. " +" .. n elseif n < 0 then s = s .. " -" .. (-n) end
     return s
 end
 
@@ -214,14 +215,15 @@ end
 
 -- Everything needed to draw a combat snapshot as a real card. Badge totals always equal
 -- the snapshot's atk/def; a keeper's bonus is its effective DEF minus its base DEF.
---   → { cardDef, stats = { atk, def }, atkBonus, defBonus, hidden, atk, def, atkTags, defTags } | nil
+--   → { cardDef, stats = { atk, def }, atkBonus, defBonus, hidden, atk, def, atkTags, defTags, tired } | nil
 function Fx.cardView(snap, lookup)
     if not snap then return nil end
     local def = lookup and lookup(snap.name, snap.type)
     local atkBonus = snap.atkBonus or 0
     local defBonus = snap.defBonus or 0
     if snap.isKeeper and def and def.stats then
-        defBonus = math.max(0, (snap.def or 0) - (def.stats.def or 0))
+        -- Negative when a Tired non-keeper in goal drops under its base DEF.
+        defBonus = (snap.def or 0) - (def.stats.def or 0)
     end
     local cardDef = def or { name = snap.name, type = snap.type, rarity = snap.rarity or "common",
                              stats = { atk = snap.atk, def = snap.def } }
@@ -235,6 +237,7 @@ function Fx.cardView(snap, lookup)
         def      = snap.def or 0,
         atkTags  = Fx.bonusTags(snap, "atk"),
         defTags  = Fx.bonusTags(snap, "def"),
+        tired    = snap.tired == true,
     }
 end
 

@@ -9,6 +9,7 @@ C.MATCH = {
     MIDFIELD_CONTROL_DRAW     = 1,    -- extra cards drawn at turn start by the player controlling midfield
     MULLIGAN_MAX              = 3,    -- cards a player may send back at a half-time break
     SUMMONED_CAN_ATTACK       = false, -- false: a field card summoned this turn attacks from its owner's next turn (Pace excepted)
+    SUBS_PER_HALF             = 3,    -- substitutions per half, keeper swaps included (Extra Time: 3 too)
 }
 
 C.COMBAT = {
@@ -33,6 +34,18 @@ C.ABILITY = {
     BOLT_LINE           = 500,  -- Bolt: toward its keeper's effective DEF (instead of +300)
     CLINICAL_DAMAGE     = 300,  -- Clinical: LP dealt by a shot that ties the keeper's DEF
     METRONOME_SUMMONS   = 1,    -- Metronome: extra summons when controlling midfield
+}
+
+-- Stamina (engine/stamina.lua; spec B1). A field card enters with full stamina; keepers
+-- never tire. At 0 a card is Tired.
+C.STAMINA = {
+    MAX          = { striker = 4, midfielder = 5, defender = 6 },   -- by card type
+    ENGINE_BONUS = 2,     -- Box-to-Box (Engine): 7
+    TURN_COST    = 1,     -- end of its owner's turn
+    ACTION_COST  = 1,     -- attacking or covering, when the action resolves
+    ABILITY_COST = 1,     -- Press, Counter-press: when the ability fires
+    TIRED_ATK    = 300,   -- Tired: −300 ATK
+    TIRED_DEF    = 300,   -- Tired: −300 DEF
 }
 
 -- Keeper effective DEF = base DEF + (active defenders × 300) + (active midfielder × 150)

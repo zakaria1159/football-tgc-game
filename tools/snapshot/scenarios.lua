@@ -132,8 +132,8 @@ S.cards = {
     { 1.5, function(c) c.quit() end },
 }
 
--- Summon a keeper + one field card, start the attack phase, select an attacker,
--- end the turn and let the AI play.
+-- Summon a keeper (picker: D) + one field card (picker: A), start the attack phase, select an
+-- attacker, end the turn and let the AI play.
 local picked = {}
 S.summon = {
     { 0.3,  function() math.randomseed(7) end },
@@ -148,10 +148,12 @@ S.summon = {
     { 2.3,  function() move(640, 300) end },
     { 2.6,  function(c) c.snap("selected") end },
     { 2.7,  function() click(center(Layout.slot("player", "keeper", 0))) end },
+    { 2.8,  function() love.keypressed("d") end },
     { 3.5,  function(c) c.snap("placed") end },
     { 3.6,  function() if picked.field then move(handPoint(picked.field)) end end },
     { 3.9,  function() if picked.field then press(handPoint(picked.field)) end end },
     { 4.1,  function() local r = fieldSlot(picked.field); if r then click(center(r)) end end },
+    { 4.2,  function() if picked.field then love.keypressed("a") end end },
     { 4.8,  function(c) c.snap("two") end },
     { 4.9,  function() click(center(Layout.bottom.startAttack)) end },
     { 5.2,  function() local r = fieldSlot(picked.field); if r then click(center(r)) end end },
@@ -205,7 +207,8 @@ S.juice = {
         press(handPoint(firstOf({ "keeper" })))
     end },
     { 4.0,  function() click(center(Layout.slot("player", "keeper", 0))) end },
-    { 4.05, function() move(640, 300) end },                  -- keep the zoom off the pop shot
+    { 4.03, function() love.keypressed("d") end },            -- the mode picker
+    { 4.06, function() move(640, 300) end },                  -- keep the zoom off the pop shot
     { 4.9,  function(c) c.snap("popdone") end },
     { 5.0,  function(c) c.quit() end },
 }
@@ -581,7 +584,8 @@ S.abilities = {
 }
 
 -- Keeper substitution: Reliable Hands in goal (harness-only), The Wall in hand. Select it
--- (your GK glows, hint), click the GK: The Wall comes on, Reliable Hands goes to hand.
+-- (your GK glows, hint), click the GK: the picker opens with the keeper note; D brings The
+-- Wall on face-down, Reliable Hands goes to hand.
 local swapGk
 S.keeperswap = {
     { 0.3, function() math.randomseed(7) end },
@@ -597,9 +601,135 @@ S.keeperswap = {
     { 2.2, function() move(640, 300) end },
     { 2.6, function(c) c.snap("before") end },
     { 2.7, function() click(center(Layout.slot("player", "keeper", 0))) end },
-    { 2.8, function() move(640, 300) end },
-    { 3.6, function(c) c.snap("after") end },
-    { 3.8, function(c) c.quit() end },
+    { 2.9, function(c) c.snap("picker") end },
+    { 3.0, function() love.keypressed("d") end },
+    { 3.1, function() move(640, 300) end },
+    { 3.8, function(c) c.snap("after") end },
+    { 4.0, function(c) c.quit() end },
+}
+
+-- Card modes (spec A1/A2): select a striker, click a striker slot: the mode picker opens on
+-- the slot; A places it face-up. A harness-built attack-mode midfielder shows TO DEFENSE;
+-- clicking it switches it to face-up defense (DEF pill, no ribbon). A keeper's picker shows
+-- the note; Esc cancels and the keeper stays selected.
+local modeCard, modeKeeper
+S.modes = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, kickOff },
+    { 1.5, function()
+        store().match.players.player.pitch.midfielder = pitched("mid-box-to-box", "midfielder")
+        modeCard = defById("str-poacher")
+        table.insert(hand(), modeCard)
+        modeKeeper = firstOf({ "keeper" })
+    end },
+    { 1.8, function() move(handPoint(modeCard)) end },
+    { 2.0, function() press(handPoint(modeCard)) end },
+    { 2.2, function() click(center(Layout.slot("player", "striker", 1))) end },
+    { 2.6, function(c) c.snap("picker") end },
+    { 2.7, function() love.keypressed("a") end },
+    { 2.8, function() move(640, 60) end },
+    { 3.5, function(c) c.snap("placed") end },
+    { 3.6, function() click(center(Layout.slot("player", "midfielder", 0))) end },
+    { 3.7, function() move(640, 60) end },
+    { 4.1, function(c) c.snap("switched") end },
+    { 4.2, function() move(handPoint(modeKeeper)) end },
+    { 4.4, function() press(handPoint(modeKeeper)) end },
+    { 4.6, function() click(center(Layout.slot("player", "keeper", 0))) end },
+    { 5.0, function(c) c.snap("keeper") end },
+    { 5.1, function() love.keypressed("escape") end },
+    { 5.2, function() move(640, 60) end },
+    { 5.6, function(c) c.snap("cancel") end },
+    { 5.8, function(c) c.quit() end },
+}
+
+-- Pitched card through the real engine (full stamina), optionally at a given stamina.
+local function staminaCard(id, slotType, mode, stamina)
+    local c = require("engine.state").newPitchedCard(defById(id), slotType, mode)
+    if stamina then c.stamina = stamina end
+    return c
+end
+
+-- Stamina (harness-only board): pips at 5/7, 2/6 and 1/4 (orange), a tired Poacher (sweat
+-- drop, TIRED pill, red numbers), the opponent's face-up Stopper with pips and its face-down
+-- Destroyer with none; the zoom's TIRED line; then the tired Poacher really attacks the
+-- Stopper: "TIRED -300" beside Engine and Link-up in the overlay.
+S.stamina = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, kickOff },
+    { 1.5, function()
+        local m = store().match
+        local P, O = m.players.player.pitch, m.players.opponent.pitch
+        P.strikers[1]  = staminaCard("str-poacher", "striker", "attack", 0)
+        P.strikers[2]  = staminaCard("str-complete-forward", "striker", "attack", 1)
+        P.midfielder   = staminaCard("mid-box-to-box", "midfielder", "attack", 5)
+        P.defenders[1] = staminaCard("def-the-rock", "defender", "defense", 2)
+        P.keeper       = staminaCard("keeper-the-wall", "keeper", "defense")
+        O.defenders[1] = staminaCard("def-stopper", "defender", "attack", 3)
+        O.defenders[2] = staminaCard("def-destroyer", "defender", "defense", 0)
+        O.keeper       = staminaCard("keeper-iron-fists", "keeper", "defense")
+        m.turn, m.phase = 2, "attack"
+    end },
+    { 1.9, function(c) c.snap("board") end },
+    { 2.0, function() move(center(Layout.slot("player", "striker", 1))) end },
+    { 2.6, function(c) c.snap("zoom") end },
+    { 2.7, function()
+        move(640, 60)
+        local st = store()
+        st:declareAttack({ type = "striker", index = 1 }, { type = "defender", index = 1 })
+        require("scenes.match").debugOverlay("combat", st:popCombat())
+    end },
+    { 4.1, function(c) c.snap("tags") end },
+    { 4.6, function(c) c.snap("result") end },
+    { 4.8, function(c) c.quit() end },
+}
+
+-- Substitutions (harness-only board, turn 2): a tired Poacher and a 1-stamina Complete
+-- Forward up front, the Stopper facing them. Speed Demon replaces the Poacher through the
+-- picker on the occupied slot (SUBS 1 / 3, the Poacher back in hand). Then the Substitution
+-- card returns the Complete Forward and Clinical Finisher comes on free (SUBS still 1 / 3,
+-- SUMMONS 1 / 2) and is selected as an attacker the same turn.
+local subIn, subCardDef, subFree
+S.subs = {
+    { 0.3, function() math.randomseed(7) end },
+    { 0.5, kickOff },
+    { 1.5, function()
+        local m = store().match
+        local P, O = m.players.player.pitch, m.players.opponent.pitch
+        P.strikers[1]  = staminaCard("str-poacher", "striker", "attack", 0)
+        P.strikers[2]  = staminaCard("str-complete-forward", "striker", "attack", 1)
+        O.defenders[1] = staminaCard("def-stopper", "defender", "attack")
+        subIn      = defById("str-speed-demon")
+        subCardDef = defById("strat-substitution")
+        subFree    = defById("str-clinical-finisher")
+        table.insert(hand(), subIn)
+        table.insert(hand(), subCardDef)
+        table.insert(hand(), subFree)
+        m.turn = 2
+    end },
+    { 1.8, function() move(handPoint(subIn)) end },
+    { 2.0, function() press(handPoint(subIn)) end },
+    { 2.1, function() move(640, 60) end },
+    { 2.4, function(c) c.snap("select") end },
+    { 2.5, function() click(center(Layout.slot("player", "striker", 1))) end },
+    { 2.8, function(c) c.snap("picker") end },
+    { 2.9, function() love.keypressed("a") end },
+    { 3.0, function() move(640, 60) end },
+    { 3.7, function(c) c.snap("sub") end },
+    { 3.8, function() press(handPoint(subCardDef)) end },
+    { 4.0, function() click(center(Layout.slot("player", "striker", 2))) end },
+    { 4.1, function() move(640, 60) end },
+    { 4.2, function() press(handPoint(subFree)) end },   -- selected: the freed slot glows
+    { 4.3, function() move(640, 60) end },
+    { 4.5, function(c) c.snap("freed") end },
+    { 4.7, function() click(center(Layout.slot("player", "striker", 2))) end },
+    { 4.8, function() love.keypressed("a") end },
+    { 4.9, function() move(640, 60) end },
+    { 5.6, function(c) c.snap("subcard") end },
+    { 5.7, function() click(center(Layout.bottom.startAttack)) end },
+    { 5.9, function() click(center(Layout.slot("player", "striker", 2))) end },
+    { 6.0, function() move(640, 60) end },
+    { 6.4, function(c) c.snap("attacker") end },
+    { 6.6, function(c) c.quit() end },
 }
 
 return S

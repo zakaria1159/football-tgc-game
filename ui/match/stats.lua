@@ -29,4 +29,9 @@ function Stats.summons(match)
     return used, max
 end
 
+-- used, max — "SUBS used / max": your substitutions this half (keeper swaps included).
+function Stats.subs(match)
+    return match.players.player.subsUsed or 0, C.MATCH.SUBS_PER_HALF
+end
+
 return Stats

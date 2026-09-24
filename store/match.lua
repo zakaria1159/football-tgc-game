@@ -2,6 +2,7 @@ local State  = require("engine.state")
 local Phases = require("engine.phases")
 local Combat = require("engine.combat")
 local Resolver = require("engine.cards.resolver")
+local Stamina  = require("engine.stamina")
 local C      = require("engine.constants")
 local AI     = require("ai.opponent")
 
@@ -673,7 +674,8 @@ end
 --   opts.penalty:  a Penalty or a Through ball shot (the keeper's penalty DEF).
 -- Otherwise a keeper target, or an empty non-striker slot (open goal), is a shot.
 -- Each side: { name, type, mode, wasHidden, atk, def, atkBonus, defBonus, isKeeper,
---              atkTags, defTags } — tags { keyword, name, amount } from ability parts.
+--              atkTags, defTags, tired } — tags { keyword, name, amount } from stat parts
+--              (abilities and Tired); tired: a Tired card whose stamina its opponent may see.
 function Store:_snapshotAttack(attackerSlot, defenderSlot, opts)
     opts = opts or {}
     local match      = self.match
@@ -694,26 +696,27 @@ function Store:_snapshotAttack(attackerSlot, defenderSlot, opts)
         for _, p in ipairs(parts or {}) do
             if not (ownerId == "opponent" and Resolver.hidden(p.pitched)) then
                 out[#out + 1] = { keyword = p.keyword,
-                                  name = Resolver.NAMES[p.keyword] or p.keyword,
+                                  name = Resolver.partName(p.keyword),
                                   amount = p.amount }
             end
         end
         return out
     end
 
-    local function base(card, isKeeper)
+    local function base(card, isKeeper, ownerId)
         local d = card.definition
         return {
             name = d.name, type = d.type, mode = card.mode,
             wasHidden = (card.mode == "defense" and not card.revealed),
             atk = Combat.getStat(card, "attack"), def = Combat.getStat(card, "defend"),
             atkBonus = 0, defBonus = 0, isKeeper = isKeeper, atkTags = {}, defTags = {},
+            tired = Stamina.tired(card) and not (ownerId == "opponent" and Resolver.hidden(card)),
         }
     end
 
     local attacker
     if atkCard then
-        attacker = base(atkCard, false)
+        attacker = base(atkCard, false, activeId)
         local atk, parts = Combat.attackStat(atkCard, attackerSlot.type, atkPitch, defPitch,
                                              isShot and { keeper = defPitch.keeper } or nil)
         attacker.atkBonus = atk - attacker.atk
@@ -724,7 +727,7 @@ function Store:_snapshotAttack(attackerSlot, defenderSlot, opts)
     local defender
     if defCard then
         local isKeeper = defenderSlot.type == "keeper" and not opts.covering
-        defender = base(defCard, isKeeper)
+        defender = base(defCard, isKeeper, opponentId)
         local def, parts
         if isKeeper then
             def, parts = Combat.keeperDef(defCard, defPitch, opts.penalty)

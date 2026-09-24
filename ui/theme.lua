@@ -82,6 +82,16 @@ Theme.outcome = {
     purple = { hex("c77dff"), hex("7b2cbf") },
 }
 
+-- Tired cards (stamina 0): red rim, pale badge interior and red numbers, the TIRED pill, the
+-- sweat drop, and the last stamina pip's warning colour.
+Theme.tired = {
+    number = hex("e0243a"),
+    fill   = hex("f4f5fb"),
+    pill   = { hex("ff8a8a"), hex("e0243a") },
+    sweat  = hex("4fb8ff"),
+    low    = hex("ffc15a"),
+}
+
 -- Deck-select tiles (keys match data/presetDecks.lua).
 Theme.deckFill = {
     tikitaka   = { hex("6ee7a0"), hex("16a34a") },

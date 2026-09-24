@@ -1,13 +1,16 @@
 -- Clash-portrait card renderer.
 -- Public API (unchanged contract for existing callers):
---   Card.drawPitched(pitched, x, y, opts)   opts: w, h, faceDown, canFlip, pitch, hideHidden, selected, target
+--   Card.drawPitched(pitched, x, y, opts)   opts: w, h, faceDown, switchLabel, pitch, hideHidden, selected, target
+--   Card.switchLabel(pitched, slotType, ctx) position-switch ribbon text or nil (pure, unit-tested)
+--   Card.staminaView(pitched)               { filled, total, tired } or nil (pure, unit-tested)
+--   drawPitched opts.showStamina            pips (and the tired marker) on a pitched card
 --   Card.showsFace(pitched)                 face-up? (attack mode or revealed; never traps) — pure
 --   Card.drawInHand(cardDef, x, y, opts)    opts: w, h, selected   → returns {x,y,w,h}
 --   Card.drawLarge(cardDef, x, y, w)        → face + info sticker, returns total h
 -- New:
 --   Card.layout(w, h)                       pure geometry (unit-tested)
 --   Card.keywordLabel(cardDef)              keyword pill text or nil (pure, unit-tested)
---   Card.drawFace(cardDef, x, y, w, h, opts) opts: stats, atkBonus, defBonus, exhausted, selected, target, alpha,
+--   Card.drawFace(cardDef, x, y, w, h, opts) opts: stats, atkBonus, defBonus, exhausted, selected, target, alpha, tired,
 --                                                   badges = "corners"|"left"|"none"
 --   Card.drawBadges(cardDef, x, y, w, h, opts) badges only; opts: stats, atkBonus, defBonus, alpha,
 --                                                   badges = "corners"|"left"|"none"
@@ -15,8 +18,10 @@
 local Theme  = require("ui.theme")
 local Fonts  = require("ui.fonts")
 local Combat = require("engine.combat")
-local Draw   = require("ui.kit.draw")
-local Icons  = require("ui.kit.icons")
+local Draw    = require("ui.kit.draw")
+local Icons   = require("ui.kit.icons")
+local Phases  = require("engine.phases")
+local Stamina = require("engine.stamina")
 
 local Card = {}
 
@@ -81,6 +86,12 @@ function Card.layout(w, h)
     -- the ribbon, the badges, the type tag or the gem.
     local kwH = math.max(9, 14 * s)
     L.kw = { cx = w / 2, y = L.ribbon.y - kwH - math.max(1, 2 * s), h = kwH, maxW = w - 16 * s }
+    -- Stamina pips (pitched cards): a row centred between the ATK and DEF badges, under the
+    -- name ribbon; on a card back it sits above the DEF label (backCy). The sweat drop (Tired)
+    -- is top-left, clear of the type tag, the gem, the DEF pill and the switch ribbon.
+    L.stamina = { cx = w / 2, cy = h - 13 * s, backCy = h - 36 * s, h = math.max(6, 9 * s),
+                  pip = math.max(3, 4.5 * s), gap = math.max(1, 1.5 * s) }
+    L.sweat   = { cx = 14 * s, cy = 27 * s, size = math.max(7, 14 * s) }
     return L
 end
 
@@ -157,6 +168,66 @@ local function drawKeyword(label, L, x, y, alpha)
     })
 end
 
+-- "TO DEFENSE ▼" ribbon on an attack-mode card that may switch (the arrow is drawn: the fonts
+-- have no ▼). Same place and size as the revealed card's TO ATTACK ribbon (L.flip).
+local function drawToDefense(L, x, y)
+    local fh = L.flip.h
+    local rw = L.w * 0.9
+    local rx = x + (L.w - rw) / 2
+    local ry = y + L.flip.y
+    Draw.sticker(rx, ry, rw, fh, { r = fh * 0.2, fill = Theme.grad.def, border = 3, shadow = 4 })
+    local arrow = fh * 0.55
+    local size  = math.floor(fh * 0.6)
+    Draw.text("TO DEFENSE", rx + 6, ry + (fh - size) / 2 - size * 0.08, rw - 16 - arrow, "center", {
+        size = size, color = Theme.white, fit = true, minSize = 6,
+    })
+    Draw.arrowDown(rx + rw - 6 - arrow / 2, ry + fh / 2, arrow, Theme.white)
+end
+
+-- Sweat drop (Tired): a teardrop, drawn (the fonts have no emoji).
+local function drawSweat(cx, cy, size)
+    local r = size * 0.38
+    Draw.setColor(Theme.ink)
+    love.graphics.circle("fill", cx, cy + size * 0.18 + 1.5, r + 1.5, 16)
+    Draw.setColor(Theme.tired.sweat)
+    love.graphics.polygon("fill", cx, cy - size * 0.5, cx - r * 0.95, cy + size * 0.1, cx + r * 0.95, cy + size * 0.1)
+    love.graphics.circle("fill", cx, cy + size * 0.18, r, 16)
+    Draw.setColor(Theme.white, 0.8)
+    love.graphics.circle("fill", cx - r * 0.35, cy + size * 0.1, r * 0.28, 8)
+end
+
+-- Stamina row for a staminaView: pips on a dark backing (the last pip turns orange), or, at 0,
+-- a red TIRED pill plus the sweat drop. onBack: the card back's row position (no sweat drop
+-- there: it would sit on the back's FLIP UP ribbon).
+local function drawStamina(view, L, x, y, onBack)
+    local st = L.stamina
+    local cy = y + (onBack and st.backCy or st.cy)
+    if view.tired then
+        -- As wide as a 6-pip row (still clear of the badges at every card size), a bit taller.
+        local pw = Card.staminaRowWidth(L, 6)
+        local ph = st.h + 4 * L.s
+        Draw.pill(x + st.cx - pw / 2, cy - ph / 2, pw, ph, "TIRED", {
+            fill = Theme.tired.pill, textColor = Theme.white, border = math.max(1, math.floor(L.s)),
+            shadow = 0, size = math.max(6, math.floor(ph * 0.72)),
+        })
+        if not onBack then drawSweat(x + L.sweat.cx, y + L.sweat.cy, L.sweat.size) end
+        return
+    end
+    local rw = Card.staminaRowWidth(L, view.total)
+    local rx = x + st.cx - rw / 2
+    Draw.roundedFill(rx, cy - st.h / 2, rw, st.h, st.h / 2, { Theme.ink[1], Theme.ink[2], Theme.ink[3], 0.6 })
+    local low = view.filled <= 1
+    for i = 1, view.total do
+        local px = rx + st.h / 2 + (i - 1) * (st.pip + st.gap)
+        if i <= view.filled then
+            Draw.setColor(low and Theme.tired.low or Theme.grad.bonus[1])
+        else
+            Draw.setColor({ 1, 1, 1, 0.25 })
+        end
+        love.graphics.rectangle("fill", px, cy - st.pip / 2, st.pip, st.pip, st.pip * 0.3)
+    end
+end
+
 -- ── Face ──────────────────────────────────────────────────────────────────────
 
 -- Draws only the ATK/DEF badges (and bonus tag) for a card, given its layout.
@@ -176,9 +247,10 @@ function Card.drawBadges(cardDef, x, y, w, h, opts)
         atkPos, defPos = L.atkLeft, L.defLeft
     end
 
-    Draw.atkBadge(x + atkPos.cx, y + atkPos.cy, atkPos.size, (stats.atk or 0) + (opts.atkBonus or 0), a)
+    Draw.atkBadge(x + atkPos.cx, y + atkPos.cy, atkPos.size, (stats.atk or 0) + (opts.atkBonus or 0), a,
+        opts.tired)
     Draw.defBadge(x + defPos.cx, y + defPos.cy, defPos.size, (stats.def or 0) + (opts.defBonus or 0),
-        opts.defBonus, a)
+        opts.defBonus, a, opts.tired)
     if opts.atkBonus and opts.atkBonus > 0 then
         Draw.bonusTag(x + atkPos.cx, y + atkPos.cy - atkPos.size / 2 - 2, atkPos.size, opts.atkBonus, a)
     end
@@ -257,31 +329,47 @@ end
 
 -- ── Public API (existing contract) ────────────────────────────────────────────
 
--- Bonuses shown on a pitched card's badges: its always-on bonuses. Pure (unit-tested).
---   striker  → +ATK: midfielder card bonus (Engine / Overlap) and Link-up
---   defender → +DEF: midfielder card bonus (Engine) and Last man
---   keeper   → effective DEF minus base DEF (line, Bolt, midfielder, Safe hands)
+-- Bonuses shown on a pitched card's badges: its always-on bonuses and maluses. Pure
+-- (unit-tested).
+--   ATK: Combat.attackStat for its slot minus base ATK (striker slot: the midfielder card
+--        bonus with Engine / Overlap, and Link-up; any slot: Tired −300)
+--   DEF: keeper slot → effective DEF minus base DEF (line, Bolt, midfielder, Safe hands);
+--        other slots → Combat.defendStat minus base DEF (defender slot: the midfielder card
+--        bonus with Engine, and Last man; any slot: Tired −300)
 -- Situational bonuses (Instinct, Opportunist, Counter-press) are not shown here.
 -- hideHidden: the card is the opponent's; bonuses from their face-down, unrevealed cards
 -- (a hidden midfielder's bonus, a hidden Link-up or Bolt card) are hidden information.
--- Returns atkBonus, defBonus, atkParts, defParts.
+-- Returns atkBonus, defBonus (negative when Tired outweighs the bonuses), atkParts, defParts.
 function Card.bonuses(pitched, pitch, hideHidden)
     if not pitch then return 0, 0, {}, {} end
-    local st    = pitched.slotType
+    local st = pitched.slotType
+    if st ~= "striker" and st ~= "defender" and st ~= "midfielder" and st ~= "keeper" then
+        return 0, 0, {}, {}
+    end
     local stats = pitched.definition.stats or {}
-    if st == "striker" then
-        local atk, parts = Combat.attackStat(pitched, "striker", pitch, nil, nil, hideHidden)
-        return atk - (stats.atk or 0), 0, parts, {}
-    end
-    if st == "defender" then
-        local def, parts = Combat.defendStat(pitched, "defender", pitch, false, hideHidden)
-        return 0, def - (stats.def or 0), {}, parts
-    end
+    local atk, atkParts = Combat.attackStat(pitched, st, pitch, nil, nil, hideHidden)
+    local def, defParts
     if st == "keeper" then
-        local def, parts = Combat.keeperDef(pitched, pitch, false, hideHidden)
-        return 0, def - (stats.def or 0), {}, parts
+        def, defParts = Combat.keeperDef(pitched, pitch, false, hideHidden)
+    else
+        def, defParts = Combat.defendStat(pitched, st, pitch, false, hideHidden)
     end
-    return 0, 0, {}, {}
+    return atk - (stats.atk or 0), def - (stats.def or 0), atkParts, defParts
+end
+
+-- Stamina pips for a pitched card: { filled, total, tired }, or nil when it never tires.
+-- Pure (unit-tested).
+function Card.staminaView(pitched)
+    if not pitched or pitched.stamina == nil then return nil end
+    local total = Stamina.max(pitched.definition) or pitched.stamina
+    return { filled = math.max(0, math.min(total, pitched.stamina)), total = total,
+             tired = pitched.stamina <= 0 }
+end
+
+-- Width of a row of n stamina pips at layout L, backing included. Pure (unit-tested).
+function Card.staminaRowWidth(L, n)
+    local st = L.stamina
+    return n * st.pip + (n - 1) * st.gap + st.h
 end
 
 -- Keyword pill text for a field card ("LINK-UP"), or nil (traps, strategies, no keyword).
@@ -301,61 +389,58 @@ function Card.showsFace(pitched)
     return pitched.mode ~= "defense" or pitched.revealed == true
 end
 
--- True when a pitched card's flip (FLIP UP / TO ATTACK) ribbon may legally appear.
--- Mirrors engine.phases.Phases.changeMode: keepers and traps can never flip, and it must
--- be the card owner's own summon phase, with the card in defense mode, not exhausted, not
--- summoned this turn and not already flipped this turn.
--- ctx: { isOwnTurn, phase } — isOwnTurn is true when the card's owner is the active player.
--- Pure (unit-tested).
-function Card.canFlip(pitched, slotType, ctx)
-    ctx = ctx or {}
-    if not pitched then return false end
-    if slotType == "keeper" or slotType == "trap" then return false end
-    if not ctx.isOwnTurn or ctx.phase ~= "summon" then return false end
-    if pitched.mode ~= "defense" then return false end
-    if pitched.exhausted then return false end
-    if pitched.summonedThisTurn then return false end
-    if pitched.modeChanged then return false end
-    return true
+-- Position-switch ribbon for a pitched card: "FLIP UP" (face-down), "TO ATTACK" (revealed
+-- defense), "TO DEFENSE" (attack mode), or nil when Phases.canSwitch refuses (the rule the
+-- engine uses). ctx: { isOwnTurn, phase, halfTimeBreak }. Pure (unit-tested).
+function Card.switchLabel(pitched, slotType, ctx)
+    if not Phases.canSwitch(pitched, slotType, ctx) then return nil end
+    if pitched.mode == "attack" then return "TO DEFENSE" end
+    return pitched.revealed and "TO ATTACK" or "FLIP UP"
 end
 
 function Card.drawPitched(pitched, x, y, opts)
     opts = opts or {}
     local w = opts.w or Theme.cardSize.pitch.w
     local h = opts.h or Theme.cardSize.pitch.h
+    local L = Card.layout(w, h)
+    local sv = opts.showStamina and Card.staminaView(pitched) or nil
 
     if not Card.showsFace(pitched) then
         Card.drawBack(x, y, w, h, {
             label = (not opts.faceDown) and (pitched.slotType == "trap" and "TRAP" or "DEF") or nil,
-            canFlip = opts.canFlip,
+            canFlip = opts.switchLabel ~= nil,
             selected = opts.selected, target = opts.target,
         })
+        if sv then drawStamina(sv, L, x, y, true) end
         return
     end
 
     local atkBonus, defBonus = Card.bonuses(pitched, opts.pitch, opts.hideHidden)
 
     Card.drawFace(pitched.definition, x, y, w, h, {
-        atkBonus = atkBonus > 0 and atkBonus or nil,
-        defBonus = defBonus > 0 and defBonus or nil,
+        atkBonus = atkBonus ~= 0 and atkBonus or nil,
+        defBonus = defBonus ~= 0 and defBonus or nil,
         exhausted = pitched.exhausted, selected = opts.selected, target = opts.target,
+        tired = Stamina.tired(pitched),
     })
 
-    -- Revealed defense-mode card: face-up for both players, with a DEF marker.
     if pitched.mode == "defense" then
-        local L  = Card.layout(w, h)
+        -- Revealed defense-mode card: face-up for both players, with a DEF marker.
         local ph = L.defPill.h
         local pw = ph * 2.6
         Draw.pill(x + (w - pw) / 2, y + L.defPill.y, pw, ph, "DEF", {
             fill = Theme.grad.def, textColor = Theme.white,
             border = math.max(1, math.floor(2 * L.s)), shadow = 0,
         })
-        if opts.canFlip then
-            Draw.ribbon(x + w / 2, y + L.flip.y, w * 0.9, L.flip.h, "TO ATTACK", {
+        if opts.switchLabel then
+            Draw.ribbon(x + w / 2, y + L.flip.y, w * 0.9, L.flip.h, opts.switchLabel, {
                 fill = Theme.grad.bonus, textColor = Theme.white,
             })
         end
+    elseif opts.switchLabel then
+        drawToDefense(L, x, y)
     end
+    if sv then drawStamina(sv, L, x, y, false) end
 end
 
 function Card.drawInHand(cardDef, x, y, opts)

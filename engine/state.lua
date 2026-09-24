@@ -1,4 +1,5 @@
-local C = require("engine.constants")
+local C       = require("engine.constants")
+local Stamina = require("engine.stamina")
 
 local State = {}
 
@@ -63,6 +64,8 @@ local function newPlayerState(id, deck)
         halfGoals        = 0,       -- goals scored this half (shots that dealt LP damage, minus VAR)
         halfCardsLost    = 0,       -- own field cards destroyed this half
         nextTurnSummonLimit = nil,  -- set by TIME_WASTING trap
+        subsUsed         = 0,       -- substitutions this half (keeper swaps included; spec B2)
+        subFreedSlot     = nil,     -- Substitution card: the slot its free placement fills this turn
     }
 end
 
@@ -76,6 +79,7 @@ function State.newPitchedCard(definition, slotType, mode)
         usedAsAttacker    = false,              -- set when it attacks; cleared at the start of its owner's turn
         revealed          = false,              -- face-down card seen by both players; still in defense mode
         slotType          = slotType or definition.type,
+        stamina           = Stamina.max(definition),  -- full; nil = never tires (keepers, traps)
     }
 end
 
@@ -310,6 +314,8 @@ function State._resetHalf(matchState, newHalf)
         ps.halfGoals           = 0
         ps.halfCardsLost       = 0
         ps.nextTurnSummonLimit = nil
+        ps.subsUsed            = 0     -- 3 substitutions per half; Extra Time gets 3 too
+        ps.subFreedSlot        = nil
 
         -- Collect all non-destroyed cards (hand + pitch) back into pool for redeal.
         -- Graveyard (permanently destroyed) stays out.
