@@ -972,6 +972,8 @@ function AI.estimateAttackDamage(match, ownerId, attackerSlot, defenderSlot)
         return math.max(0, atk - (Combat.keeperDef(target, dPitch, oneOnOne)))
     end
     if not target or target.mode == "defense" then return 0 end
+    -- A tackle (defender slot vs striker slot) costs the striker, never LP.
+    if attackerSlot.type == "defender" and defenderSlot.type == "striker" then return 0 end
     local atk = Combat.attackStat(attacker, attackerSlot.type, aPitch, dPitch)
     local def = Combat.defendStat(target, defenderSlot.type, dPitch)
     return math.max(0, atk - def)

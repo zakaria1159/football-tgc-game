@@ -2,6 +2,7 @@
 -- striker slot. Tackles win or lose cards, never LP (rules.md "Tackles").
 local T  = require("tests.t")
 local H  = require("tests.helpers")
+local AI = require("ai.opponent")
 
 -- LP of both seats and the damage stats (total and this half) of both seats.
 local function lpState(m)
@@ -120,4 +121,17 @@ T.test("Tackle control: a striker losing to a defender still costs its owner LP"
     T.eq(r.outcome, "attacker_exhausted")
     T.ok(not r.tackle)
     T.eq(m.players.player.lp, lp - 200)
+end)
+
+-- ── AI ────────────────────────────────────────────────────────────────────────
+
+T.test("Tackle AI: a tackle is estimated at 0 LP, and the AI still tackles a beatable striker", function()
+    local m = H.match({ active = "opponent" })
+    H.place(m, "opponent", "defender", 1, H.card("defender", 1800, 1600))
+    H.place(m, "player", "striker", 1, H.card("striker", 2000, 1200))
+    T.eq(AI.estimateAttackDamage(m, "player", H.slot("defender", 1), H.slot("striker", 1)), 0)
+    local atk = AI._planNextAttack(m, "medium")
+    T.ok(atk, "an attack is planned")
+    T.eq(atk.attackerSlot.type, "defender")
+    T.eq(atk.defenderSlot.type, "striker"); T.eq(atk.defenderSlot.index, 1)
 end)
