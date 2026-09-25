@@ -649,6 +649,7 @@ function Store:_pushCombat(snap, result)
             outcome      = result.outcome,
             margin       = result.margin or 0,
             damage       = result.damage or 0,
+            tackle       = result.tackle or nil,   -- defender slot vs striker slot: no LP
             activePlayer = self.match and self.match.activePlayer or "player",
             abilities    = result.abilities or {},   -- keywords that fired (overlay)
         })

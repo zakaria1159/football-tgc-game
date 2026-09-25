@@ -92,15 +92,31 @@ T.test("tired: the combat overlay keeps a negative bonus so the badge shows the 
     T.eq(v.tired, true); T.eq(v.atkTags[1], "TIRED -300")
 end)
 
-T.test("AI switch: a tired striker the enemy would beat goes to face-up defense", function()
+local function aiSwitches(m, slotType)
+    local n = 0
+    for _, a in ipairs(AI._planSummons(m)) do
+        if a.type == "toDefense" and a.slotType == slotType then n = n + 1 end
+    end
+    return n
+end
+
+-- Only tackles threaten a striker slot, and tackles cost no LP: pulling back saves nothing.
+T.test("AI switch: a tired striker the enemy would tackle stays in attack", function()
     local m = H.match({ active = "opponent", phase = "summon" })
     H.place(m, "opponent", "keeper", 0, H.card("keeper", 300, 1800), "defense")
     local s = H.place(m, "opponent", "striker", 1, H.card("striker", 2000, 500))
     H.place(m, "player", "defender", 1, H.card("defender", 1200, 1900))
     s.stamina = 0
-    local n = 0
-    for _, a in ipairs(AI._planSummons(m)) do
-        if a.type == "toDefense" and a.slotType == "striker" then n = n + 1 end
-    end
-    T.eq(n, 1)
+    T.eq(aiSwitches(m, "striker"), 0)
+end)
+
+T.test("AI switch: a tired defender the enemy striker would beat goes to face-up defense", function()
+    local m = H.match({ active = "opponent", phase = "summon" })
+    H.place(m, "opponent", "keeper", 0, H.card("keeper", 300, 1800), "defense")
+    H.place(m, "opponent", "midfielder", 0, H.card("midfielder", 1500, 1500), "defense")
+    local d = H.place(m, "opponent", "defender", 1, H.card("defender", 1600, 1800))
+    H.place(m, "opponent", "defender", 2, H.card("defender", 900, 1900), "defense")
+    H.place(m, "player", "striker", 1, H.card("striker", 2000, 1200))
+    d.stamina = 0
+    T.eq(aiSwitches(m, "defender"), 1)
 end)
