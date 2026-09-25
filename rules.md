@@ -149,7 +149,7 @@ picker says the choice is permanent. Substitutions use the same picker.
   defender slot, and the **Off the line** keeper).
 - Hidden from the opponent.
 - When it is destroyed, its owner loses **no LP**; an attacker that loses against it pays the
-  difference (the **bluff**).
+  difference (the **bluff**), except in a **tackle**, which never costs LP.
 
 **Revealed** — a face-down card that is attacked and survives, is shot at (a keeper), or is
 scouted becomes **revealed**. So does an attack-mode card switched to defense. A revealed card
@@ -244,10 +244,17 @@ card is. The bonus still applies in combat.
 
 | Result | Attacker | Defender | LP |
 |---|---|---|---|
-| ATK > DEF vs an **attack-mode** card | Exhausted | Destroyed | Defender's owner loses ATK − DEF |
+| ATK > DEF vs an **attack-mode** card | Exhausted | Destroyed | Defender's owner loses ATK − DEF (a tackle: none) |
 | ATK > DEF vs a **defense-mode** card (face-down or revealed) | Exhausted | Destroyed | None |
 | ATK = DEF | Destroyed | Destroyed | None |
-| ATK < DEF | Destroyed | Survives (revealed if face-down) | Attacker's owner loses DEF − ATK |
+| ATK < DEF | Destroyed | Survives (revealed if face-down) | Attacker's owner loses DEF − ATK (a tackle: none) |
+
+**Tackles.** A fight where the attacker is in a **defender** slot and the target in a
+**striker** slot is a **tackle**. It wins or loses cards as in the table, but **never changes
+LP**, whoever wins: defenders win or lose cards; strikers and shots win or lose LP. The combat
+overlay shows a **TACKLE** tag and no LP number. Abilities work as in any fight (Build-up still
+draws on a won tackle; Hard tackle and Immovable are unchanged), and the attack still costs
+stamina.
 
 Destroyed cards are gone for the rest of the match. Abilities can change these numbers and
 results (for example **Immovable** on a tie); see **Abilities**. A **cover** that loses is a
@@ -373,9 +380,10 @@ midfield power.
 
 | Situation | LP effect |
 |---|---|
-| You destroy an attack-mode card | Its owner loses ATK − DEF |
+| You destroy an attack-mode card (not in a tackle) | Its owner loses ATK − DEF |
+| A tackle (your defender-slot card vs a striker), won, lost or tied | None — only cards are lost |
 | You destroy a defense-mode card (face-down or revealed) | None |
-| Your attacking card loses a fight | You lose DEF − ATK |
+| Your attacking card loses a fight (not a tackle) | You lose DEF − ATK |
 | Tie | None |
 | A covering card loses (last-ditch tackle) | None — the coverer is exhausted, the attack stops |
 | Goal | The defender loses ATK − keeper effective DEF |
