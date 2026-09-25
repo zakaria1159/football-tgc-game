@@ -690,8 +690,9 @@ function Phases._doCombat(matchState, attacker, defender, attackerSlot, defender
         attacker.exhausted = true
         Phases._destroyCard(matchState, opponentId, defenderSlot.type, defenderSlot.index or 0)
         State.log(matchState, T.EventType.DEFENDER_DESTROY, { slot = defenderSlot })
-        -- Battle damage: defender was in attack mode, so its owner takes LP = ATK difference
-        if not defenderFaceDown then
+        -- Battle damage: defender was in attack mode, so its owner takes LP = ATK difference.
+        -- A tackle (defender slot vs striker slot) never costs LP.
+        if not defenderFaceDown and not result.tackle then
             local dmg = result.margin
             State.dealDamage(matchState, activeId, dmg)
             result.damage = dmg
@@ -717,6 +718,10 @@ function Phases._doCombat(matchState, attacker, defender, attackerSlot, defender
             Phases._destroyCard(matchState, opponentId, defenderSlot.type, defenderSlot.index or 0)
             State.log(matchState, T.EventType.DEFENDER_DESTROY, { slot = defenderSlot })
         end
+
+    elseif result.tackle then  -- a failed tackle: the tackler is destroyed, no LP damage
+        Phases._destroyCard(matchState, activeId, attackerSlot.type, attackerSlot.index or 0)
+        result.attackerDestroyed = true
 
     else  -- attacker lost: always destroyed + LP damage (face-down or face-up)
         Phases._destroyCard(matchState, activeId, attackerSlot.type, attackerSlot.index or 0)

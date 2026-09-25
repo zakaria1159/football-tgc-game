@@ -101,7 +101,9 @@ end
 
 -- Fight: attacker ATK vs defender DEF (Combat.attackStat / defendStat with the slot types
 -- and pitches). opts.covering: the defender covers an empty slot.
--- Returns { outcome, margin, defenderDestroyed, attackerDestroyed,
+-- tackle: a defender-slot attacker against a striker-slot target (rules.md "Tackles"). It
+-- wins or loses cards, never LP (Phases._doCombat deals no battle damage for it).
+-- Returns { outcome, margin, defenderDestroyed, attackerDestroyed, tackle,
 --           atkStat, defStat, atkParts, defParts }
 function Combat.resolve(attacker, defender, attackerSlotType, defenderSlotType, atkPitch, defPitch, opts)
     opts = opts or {}
@@ -133,7 +135,8 @@ function Combat.resolve(attacker, defender, attackerSlotType, defenderSlotType, 
         margin            = margin,
         defenderDestroyed = defDestroyed,
         attackerDestroyed = atkDestroyed,
-        atkStat           = atkStat,
+        tackle            = attackerSlotType == "defender" and defenderSlotType == "striker",
+        atkStat          = atkStat,
         defStat           = defStat,
         atkParts          = atkParts,
         defParts          = defParts,
