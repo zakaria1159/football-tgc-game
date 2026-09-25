@@ -178,7 +178,8 @@ Click your card to switch it. Its ribbon shows only when the switch is legal. **
 too:
 - it flips revealed cards up to cover an open defender slot or to win a fight;
 - it pulls a weak or Tired attack-mode card back to defense when an enemy card would beat it next
-  turn (never the only card covering an open defender slot).
+  turn (never the only card covering an open defender slot, and never a striker-slot card:
+  only tackles threaten it, and tackles cost no LP).
 
 ---
 

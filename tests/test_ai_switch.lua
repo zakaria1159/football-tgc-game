@@ -55,7 +55,7 @@ T.test("AI switch: stays in attack when nothing beats it, when it wins a fight, 
     m = aiTurn()
     H.place(m, "opponent", "striker", 1, H.card("striker", 1500, 500))
     H.place(m, "player", "defender", 1, H.card("defender", 1200, 1900))
-    T.eq(#switches(AI._planSummons(m)), 0, "a striker-slot card that isn't tired stays")
+    T.eq(#switches(AI._planSummons(m)), 0, "a striker-slot card stays")
 end)
 
 T.test("AI switch: never pulls back the only card covering an open defender slot", function()

@@ -656,7 +656,8 @@ end
 --   exposed: an enemy card could attack it next turn with more ATK than its DEF (it would be
 --            destroyed; in defence mode that costs no LP);
 --   weak:    AI._weak.
--- Never the card that alone covers an open defender slot.
+-- Never the card that alone covers an open defender slot. Never a striker-slot card: only
+-- tackles threaten it and tackles cost no LP, so pulling back would only give up its attack.
 function AI._planSwitches(match, used)
     local pitch = match.players.opponent.pitch
     local out = {}
@@ -669,7 +670,6 @@ function AI._planSwitches(match, used)
         if AI._defenderGap(used) and AI._soleCoverer(pitch, card, slotType) then return end
         table.insert(out, { type = "toDefense", slotType = slotType, slotIndex = slotIndex })
     end
-    for i = 1, C.PITCH.MAX_STRIKERS do consider(pitch.strikers[i], "striker", i) end
     consider(pitch.midfielder, "midfielder", 0)
     for i = 1, C.PITCH.MAX_DEFENDERS do consider(pitch.defenders[i], "defender", i) end
     return out
