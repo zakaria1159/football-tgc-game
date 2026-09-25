@@ -128,9 +128,10 @@ function Fx.countValue(target, k) return math.floor(target * k + 0.5) end
 
 -- ── Outcomes ──────────────────────────────────────────────────────────────────
 
--- Result ribbon { text, fill, textColor, shadow } for an outcome.
-function Fx.result(outcome, damage)
-    damage = damage or 0
+-- Result ribbon { text, fill, textColor, shadow } for an outcome. tackle: a tackle
+-- (defender slot vs striker slot) never shows an LP number.
+function Fx.result(outcome, damage, tackle)
+    damage = tackle and 0 or damage or 0
     local O, W = Theme.outcome, Theme.white
     if outcome == "damage" then
         return { text = "LP DAMAGE -" .. damage, fill = O.yellow, textColor = Theme.button.primary.text, shadow = false }
@@ -158,6 +159,11 @@ function Fx.fates(outcome)
     if outcome == "attacker_exhausted" then return "exhausted", nil end
     if outcome == "tie" or outcome == "tackled" then return "exhausted", "exhausted" end
     return nil, nil
+end
+
+-- Tag text for a tackle record (rec.tackle, set by Combat.resolve), else nil.
+function Fx.tackleTag(rec)
+    return rec and rec.tackle and "TACKLE" or nil
 end
 
 -- ── Ability tags ──────────────────────────────────────────────────────────────

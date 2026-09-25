@@ -1,5 +1,6 @@
 -- Combat overlay (arcade). Behaviour and data contract unchanged:
---   rec = { attacker, defender, outcome, margin, damage, activePlayer, abilities }   (store:_pushCombat)
+--   rec = { attacker, defender, outcome, margin, damage, tackle, activePlayer, abilities }
+--         (store:_pushCombat; tackle: defender slot vs striker slot, no LP either way)
 --   attacker / defender = { name, type, mode, wasHidden, atk, def, atkBonus, defBonus, isKeeper,
 --                           atkTags, defTags }
 -- CombatOverlay.draw(rec, t): t = seconds since the overlay opened. All timing lives in
@@ -186,10 +187,17 @@ function CombatOverlay.draw(rec, t)
     drawSide(cache.def, dx, p, defFate)
     drawSide(cache.atk, ax, p, atkFate)
     drawClash(p)
+    -- Tackle: a small tag between the cards, under the clash (cards, never LP).
+    local tackle = Fx.tackleTag(rec)
+    if tackle and p.reveal then
+        Draw.pill(W / 2 - 70, CARD_Y + CH - 16, 140, 26, tackle, {
+            fill = Theme.grad.keyword, textColor = Theme.inkText, size = 14, border = 2, shadow = 3,
+        })
+    end
     drawBadges(rec, p, sides)
 
     if p.result > 0 then
-        local st = Fx.result(rec.outcome, rec.damage)
+        local st = Fx.result(rec.outcome, rec.damage, rec.tackle)
         local cy = 682
         love.graphics.push()
         love.graphics.translate(W / 2, cy)

@@ -303,7 +303,15 @@ S.combat = {
         abilities = { "COUNTER_PRESS" } }) },
     { 15.4, function(c) c.snap("tackle") end },
     { 15.5, function() love.keypressed("space") end },
-    { 15.7, function(c) c.quit() end },
+    -- A tackle (your defender vs their striker): the striker is destroyed, TACKLE tag, no LP
+    { 15.6, combat({
+        attacker = snapFrom("def-destroyer"),
+        defender = snapFrom("str-speed-demon"),
+        outcome = "defender_destroyed", margin = 400, damage = 0, tackle = true,
+        activePlayer = "player" }) },
+    { 17.7, function(c) c.snap("defender_tackle") end },
+    { 17.8, function() love.keypressed("space") end },
+    { 18.0, function(c) c.quit() end },
 }
 
 -- Trap activation: flash, flip, stamp, dust, full; then an opponent trap.
