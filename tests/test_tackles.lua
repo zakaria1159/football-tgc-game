@@ -87,6 +87,32 @@ T.test("Tackle: Build-up still draws a card on a tackle win", function()
     sameLp(m, before)
 end)
 
+-- The slot decides, not the card type: any card in a defender slot tackles.
+for _, ctype in ipairs({ "striker", "midfielder" }) do
+    T.test("Tackle by slot: a " .. ctype .. " card in a defender slot tackles with no LP either way", function()
+        local m = H.match()
+        H.place(m, "player", "defender", 1, H.card(ctype, 1800, 1600))
+        H.place(m, "opponent", "striker", 1, H.card("striker", 2000, 1200))
+        local before = lpState(m)
+        local r = H.store(m):declareAttack(H.slot("defender", 1), H.slot("striker", 1))
+        T.eq(r.tackle, true)
+        T.eq(r.outcome, "defender_destroyed")
+        T.eq(m.players.opponent.pitch.strikers[1], nil, "striker destroyed")
+        sameLp(m, before, "win")
+        T.eq(#H.events(m, "lp_damage"), 0)
+
+        m = H.match()
+        H.place(m, "player", "defender", 1, H.card(ctype, 900, 1600))
+        H.place(m, "opponent", "striker", 1, H.card("striker", 2000, 1200))
+        before = lpState(m)
+        r = H.store(m):declareAttack(H.slot("defender", 1), H.slot("striker", 1))
+        T.eq(r.tackle, true)
+        T.eq(m.players.player.pitch.defenders[1], nil, "tackler destroyed")
+        sameLp(m, before, "loss")
+        T.eq(#H.events(m, "lp_damage"), 0)
+    end)
+end
+
 -- ── Controls: other fights still deal LP ──────────────────────────────────────
 
 T.test("Tackle control: midfielder vs attack-mode midfielder still deals LP", function()
